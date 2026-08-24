@@ -1,0 +1,60 @@
+cmake_minimum_required(VERSION 3.8)
+project(guide_dog_mission)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(yasmin REQUIRED)
+find_package(yasmin_ros REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(guide_dog_interfaces REQUIRED)
+
+include_directories(include)
+
+add_executable(main_fsm
+  src/main_fsm.cpp
+  src/states/idle_state.cpp
+  src/states/patrol_state.cpp
+  src/states/scan_state.cpp
+  src/states/align_state.cpp
+  src/states/greet_state.cpp
+  src/states/guide_state.cpp
+  src/states/arrive_state.cpp
+)
+
+ament_target_dependencies(main_fsm
+  rclcpp
+  yasmin
+  yasmin_ros
+  nav2_msgs
+  geometry_msgs
+  tf2
+  tf2_geometry_msgs
+  guide_dog_interfaces
+)
+
+install(TARGETS
+  main_fsm
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  # the following line skips the linter which checks for copyrights
+  # comment the line when a copyright and license is added to all source files
+  set(ament_cmake_copyright_FOUND TRUE)
+  # the following line skips cpplint (only works in a git repo)
+  # comment the line when this package is in a git repo and when
+  # a copyright and license is added to all source files
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()
