@@ -10,7 +10,7 @@ class TTSNode(Node):
 
         self.engine = pyttsx3.init()
 
-        self.engine.setProperty('rate', 190)
+        self.engine.setProperty('rate', 200)
 
         self.srv = self.create_service(
             Speak,

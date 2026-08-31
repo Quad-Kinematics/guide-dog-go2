@@ -24,7 +24,6 @@ void GuideDogMission::run()
 
 void GuideDogMission::setup_state_machine() 
 { 
-    // Passing SUCCEED and ABORT as the final outcomes of the ENTIRE machine.
     main_sm_ = std::make_shared<yasmin::StateMachine>(
         std::set<std::string>{yasmin_ros::basic_outcomes::SUCCEED, yasmin_ros::basic_outcomes::ABORT}
     );
@@ -63,7 +62,7 @@ void GuideDogMission::setup_state_machine()
 
     // 6. GUIDE
     main_sm_->add_state("GUIDE", std::make_shared<GuideState>(node_ptr), {
-        {yasmin_ros::basic_outcomes::SUCCEED, "ARRIVE"},    // Reached the Lab!
+        {yasmin_ros::basic_outcomes::SUCCEED, "ARRIVE"},    // Reached the Goal!
         {yasmin_ros::basic_outcomes::ABORT, "IDLE"},        // Hallway completely blocked, abort mission.
         {yasmin_ros::basic_outcomes::CANCEL, "IDLE"}
     });
@@ -72,6 +71,8 @@ void GuideDogMission::setup_state_machine()
     main_sm_->add_state("ARRIVE", std::make_shared<ArriveState>(node_ptr), {
         {"DONE", "IDLE"}                                    // Mission complete, wait for next start command
     });
+
+    viewer_pub_ = std::make_shared<yasmin_viewer::YasminViewerPub>(main_sm_, "Guide_Dog_FSM");
 }
 
 int main(int argc, char **argv)

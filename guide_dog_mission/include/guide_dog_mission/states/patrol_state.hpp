@@ -13,11 +13,15 @@ public:
 
     nav2_msgs::action::NavigateToPose::Goal create_goal_handler(yasmin::Blackboard::SharedPtr blackboard);
 
+    std::string execute(yasmin::Blackboard::SharedPtr blackboard) override;
+
 private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Subscription<guide_dog_interfaces::msg::DetectedFace>::SharedPtr face_sub_;
     std::vector<std::vector<double>> waypoints_;
     int current_index_;
+    std::atomic<bool> cancel_requested_;
+    std::atomic<bool> is_active_;
     
     void face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg);
 };

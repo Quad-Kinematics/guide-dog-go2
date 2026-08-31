@@ -11,7 +11,7 @@ std::string IdleState::execute(yasmin::Blackboard::SharedPtr blackboard)
     start_requested_ = false;
 
     // Loop until the flag is flipped by the service callback
-    while (rclcpp::ok() && !start_requested_) {
+    while (rclcpp::ok() && !start_requested_) { //Srinath asked to check whether we have a better approch than this or not.
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
