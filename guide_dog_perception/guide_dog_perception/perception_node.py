@@ -81,14 +81,14 @@ class PerceptionNode(Node):
             self.face_pub.publish(msg)
 
             # 4. Draw visual debugging markers
-            cv2.rectangle(cv_image, (int(x_min), int(y_min)),
-                          (int(x_max), int(y_max)), (0, 255, 0), 2)
-            cv2.circle(cv_image, (int(box_center_x), int(
-                (y_min + y_max)/2)), 5, (0, 0, 255), -1)
+            # cv2.rectangle(cv_image, (int(x_min), int(y_min)),
+            #              (int(x_max), int(y_max)), (0, 255, 0), 2)
+            # cv2.circle(cv_image, (int(box_center_x), int(
+            #   (y_min + y_max)/2)), 5, (0, 0, 255), -1)
 
         # Show the live feed (Press 'q' inside the window to close it, or Ctrl+C in terminal)
-        cv2.imshow("Guide Dog Vision", cv_image)
-        cv2.waitKey(1)
+        # cv2.imshow("Guide Dog Vision", cv_image)
+        # cv2.waitKey(1)
 
 
 def main(args=None):
@@ -101,7 +101,7 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        cv2.destroyAllWindows()
+        # cv2.destroyAllWindows()
         rclpy.shutdown()
 
 
