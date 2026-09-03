@@ -19,8 +19,8 @@ nav2_msgs::action::NavigateToPose::Goal GuideState::create_goal_handler(yasmin::
     goal.pose.header.stamp = node_->now();
     
     // Hardcoded coordinates for the "Destination"
-    goal.pose.pose.position.x = 8.5; 
-    goal.pose.pose.position.y = -3.2; 
+    goal.pose.pose.position.x = -11.744701385498047; 
+    goal.pose.pose.position.y = 4.30275821685791;  
     
     // Basic orientation (facing straight forward: yaw = 0)
     goal.pose.pose.orientation.x = 0.0;

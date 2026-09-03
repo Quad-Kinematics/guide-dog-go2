@@ -7,9 +7,9 @@ PatrolState::PatrolState(rclcpp::Node::SharedPtr node)
       node_(node), current_index_(0), cancel_requested_(false), is_active_(false)
 {
     waypoints_ = {
-        {-8.0, -5.0, 0.0},     
-        {5.0, 2.0, 0},    
-        {-2.0, 4.0, 0.0}      
+        {-5.134123802185059, 14.293927192687988, 0.0},     
+        {-17.898910522460938, 6.2883992195129395, 0},    
+        {-5.649445056915283, -1.97043776512146, 0.0}      
     };
 
     face_sub_ = node_->create_subscription<guide_dog_interfaces::msg::DetectedFace>(
