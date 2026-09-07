@@ -5,6 +5,9 @@ from guide_dog_interfaces.msg import DetectedFace
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 from ultralytics import YOLO
+import pickle
+import os
+import random
 
 
 class PerceptionNode(Node):
@@ -29,7 +32,40 @@ class PerceptionNode(Node):
             10
         )
 
+        self.face_db = self.load_face_db(
+            'config/face_db.pkl'
+        )
+
         self.get_logger().info("Perception Node online. Waiting for frames...")
+
+    def load_face_db(self, path):
+        if not os.path.exists(path):
+            self.get_logger().warn(
+                f'Face database not found at {path}. Face recognition will not match'
+                ' individuals.'
+            )
+            return {}
+        try:
+            with open(path, 'rb') as f:
+                db = pickle.load(f)
+            self.get_logger().info(
+                f'Loaded face DB from {path} with {len(db)} person(s).'
+            )
+            return db
+        except Exception as e:
+            self.get_logger().error(f'Failed to load face database: {e}')
+        return {}
+
+    # Selects a random key (person's name) from the loaded face_db dictionary and returns it with a hardcoded confidence score of 1.0
+    def recognize_face(self, cv_image, box):
+        if not self.face_db:
+            return "Unknown", 0.0
+
+        # Pick a random key (person's name) from the loaded pickle database
+        random_name = random.choice(list(self.face_db.keys()))
+
+        # Return the random name with a dummy confidence score
+        return random_name, 1.0
 
     def image_callback(self, data):
         try:
@@ -65,26 +101,41 @@ class PerceptionNode(Node):
         if person_found and best_box is not None:
             x_min, y_min, x_max, y_max = best_box
 
-            # 1. Calculate the center of the bounding box
+            # Calculate the center of the bounding box
             box_center_x = (x_min + x_max) / 2.0
 
-            # 2. Calculate the normalized offset (-1.0 to 1.0)
+            # Calculate the normalized offset (-1.0 to 1.0)
             offset_x = (box_center_x - image_center_x) / image_center_x
 
-            # 3. Publish the data to the FSM
+            recognized_name, match_score = self.recognize_face(
+                cv_image, best_box)
+
+            # Publish the data to the FSM
             msg = DetectedFace()
-            msg.name = "Person"  # For V1, we just target any human
-            msg.confidence = best_conf
+            msg.name = recognized_name
+            msg.face_confidence = match_score
+            msg.person_confidence = best_conf
             msg.center_offset_x = float(offset_x)
             msg.center_offset_y = 0.0
 
             self.face_pub.publish(msg)
 
-            # 4. Draw visual debugging markers
+            # Draw visual debugging markers
             cv2.rectangle(cv_image, (int(x_min), int(y_min)),
                           (int(x_max), int(y_max)), (0, 255, 0), 2)
             cv2.circle(cv_image, (int(box_center_x), int(
                 (y_min + y_max)/2)), 5, (0, 0, 255), -1)
+
+            display_text = f"{recognized_name} ({match_score:.2f})"
+            cv2.putText(
+                cv_image,
+                display_text,
+                (int(x_min), max(20, int(y_min) - 10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
 
         # Show the live feed (Press 'q' inside the window to close it, or Ctrl+C in terminal)
         cv2.imshow("Guide Dog Vision", cv_image)

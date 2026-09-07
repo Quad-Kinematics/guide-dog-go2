@@ -1,8 +1,11 @@
 # The recognized identity (e.g., "Janith" or "Unknown")
 string name
 
-# How confident the neural network is (0.0 to 1.0)
-float32 confidence
+# How confident the object detector is that this is a person (0.0 to 1.0)
+float32 person_confidence
+
+# How confident the face recognizer is about the matched identity (0.0 to 1.0)
+float32 face_confidence
 
 # Distance from the center of the camera frame to the center of the face.
 # We need this for the ALIGN state's P-Controller.

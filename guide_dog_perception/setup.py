@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'perception_node = guide_dog_perception.perception_node:main'
+            'perception_node = guide_dog_perception.perception_node:main',
+            'enroll_faces_node = guide_dog_perception.enroll_faces:main'
         ],
     },
 )
