@@ -20,7 +20,7 @@ private:
     // P-Controller Tuning Parameters
     const double K_p_ = 0.5;       // Proportional gain
     const double tolerance_ = 0.05; // Deadband (Stop when error is < 5%)
-    const double timeout_sec_ = 2.0;
+    const double timeout_sec_ = 5.0;
 
     // Shared data between threads
     std::mutex data_mutex_;

@@ -33,7 +33,8 @@ class PerceptionNode(Node):
         )
 
         self.face_db = self.load_face_db(
-            'config/face_db.pkl'
+            # 'config/face_db.pkl',
+            '/home/janith/dog_v1_ws/src/guide_dog_perception/config/face_db.pkl'
         )
 
         self.get_logger().info("Perception Node online. Waiting for frames...")
@@ -57,7 +58,7 @@ class PerceptionNode(Node):
         return {}
 
     # Selects a random key (person's name) from the loaded face_db dictionary and returns it with a hardcoded confidence score of 1.0
-    def recognize_face(self, cv_image, box):
+    def recognize_face(self):
         if not self.face_db:
             return "Unknown", 0.0
 
@@ -108,7 +109,7 @@ class PerceptionNode(Node):
             offset_x = (box_center_x - image_center_x) / image_center_x
 
             recognized_name, match_score = self.recognize_face(
-                cv_image, best_box)
+            )
 
             # Publish the data to the FSM
             msg = DetectedFace()
@@ -127,6 +128,7 @@ class PerceptionNode(Node):
                 (y_min + y_max)/2)), 5, (0, 0, 255), -1)
 
             display_text = f"{recognized_name} ({match_score:.2f})"
+
             cv2.putText(
                 cv_image,
                 display_text,

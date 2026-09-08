@@ -24,7 +24,7 @@ def generate_launch_description():
     # custom_world_path = os.path.join(
     #     go2_slam_pkg, "worlds/room_human_aligned.world")
     custom_world_path = os.path.join(
-        go2_slam_pkg, "worlds/demo_01.world")
+        go2_slam_pkg, "worlds/room.world")
     rviz_config_path = os.path.join(go2_slam_pkg, "rviz/rviz.rviz")
     map_yaml_path = os.path.expanduser(
         "/home/janith/unitree_go_2_ros_ws/src/unitree_go2_ros2/unitree_go2_slam/maps/arena_map.yaml")

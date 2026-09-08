@@ -170,7 +170,7 @@
     </include>
 
     <!-- Face Image Mask aligned with the head -->
-    <model name='face_board'>
+    <!-- <model name='face_board'>
       <static>true</static>
       <pose>5.0 4.75 1.8 0 0 0</pose>
       <link name='link'>
@@ -191,7 +191,7 @@
           </material>
         </visual>
       </link>
-    </model>
+    </model> -->
 
     <gui fullscreen='0'>
       <camera name='user_camera'>
