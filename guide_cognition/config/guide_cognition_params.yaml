@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    input_topic: "/recognized_person"
+    output_topic: "/speech_out"
+    greet_cooldown_seconds: 300.0
+    use_llm: true
+    api_key: ""
+    model: "gemini-2.5-flash"
+    max_tokens: 200
+    timeout_seconds: 8.0
+    robot_name: "Oxy"

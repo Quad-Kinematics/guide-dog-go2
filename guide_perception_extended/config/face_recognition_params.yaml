@@ -1,0 +1,32 @@
+# guide_perception_extended — standalone face-recognition parameters.
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# guide_perception_extended is a self-contained identity stack: it must be launchable on
+# its own, without pulling in Stack B's master bringup. These values are a
+# decoupled copy of the guide_perception_extended-relevant entries that used to live in
+# wso2_unitree_bringup/config/global_system_params.yaml, so this package no
+# longer depends on that Stack B config file.
+#
+# The `/**` wildcard applies these to the face_recognition_node regardless of
+# how it is namespaced (this mirrors how the node received them before).
+/**:
+  ros__parameters:
+    # The RealSense colour stream the face recogniser reads. The standalone
+    # launch starts the camera under the `camera` namespace, so colour frames
+    # appear on /camera/color/image_raw.
+    camera_topic: "/camera/color/image_raw"
+    # Pickle of enrolled employee embeddings, built by:
+    #   enroll_faces --images-dir <employee photos> --out <this path>
+    # "~" expands to whichever user's home directory runs the node, so this
+    # works the same way on every machine instead of only on one laptop.
+    face_db_path: "~/oxy_face_db.pkl"
+    # -1 = CPU. Switch to 0 only once CUDAExecutionProvider/TensorrtExecutionProvider
+    # is confirmed available (see guide_perception_extended/README.md).
+    detector_ctx_id: -1
+    # Run inference on every Nth frame to keep CPU load down.
+    process_every_n_frames: 3
+    # Cosine-similarity cutoff for calling a face a known person.
+    similarity_threshold: 0.45
+    # Publish an annotated debug image alongside /recognized_person.
+    publish_debug_image: true

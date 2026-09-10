@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>guide_bringup</name>
+  <version>0.1.0</version>
+  <description>
+    Single launch file that starts the guide dog packages together: camera
+    identity (guide_perception_extended) and the greeting node (guide_cognition). Each
+    subsystem can be switched on or off independently, so packages that
+    other people own (human_detector, guide_control, guide_navigation) can be
+    added here later without changing this package's own nodes.
+  </description>
+  <maintainer email="claudecodeshared67@gmail.com">oxy</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>guide_perception_extended</exec_depend>
+  <exec_depend>guide_cognition</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
