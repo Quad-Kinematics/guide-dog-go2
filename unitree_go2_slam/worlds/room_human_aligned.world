@@ -169,30 +169,6 @@
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing person</uri>
     </include>
 
-    <!-- Face Image Mask attached to the front of the face facing Go2 -->
-    <model name='face_board'>
-      <static>true</static>
-      <pose>3.38 0 1.75 0 0 1.5708</pose>
-      <link name='link'>
-        <visual name='visual'>
-          <geometry>
-            <box>
-              <size>0.20 0.002 0.24</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
-            <pbr>
-              <metal>
-                <albedo_map>/home/janith/Downloads/face.jpeg</albedo_map>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-      </link>
-    </model>
-
     <gui fullscreen='0'>
       <camera name='user_camera'>
         <pose>-0.07 -12.4 15.3 0 0.8 1.57</pose>

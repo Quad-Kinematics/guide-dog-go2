@@ -16,8 +16,18 @@ std::string GreetState::execute(yasmin::Blackboard::SharedPtr blackboard)
         return "FAILED";
     }
 
+    std::string target_name = "there";
+
+    if (blackboard->contains("target_name")) {
+        target_name = blackboard->get<std::string>("target_name");
+    }
+
+    if (target_name == "Unknown") {
+        target_name = "there";
+    }
+
     auto request = std::make_shared<guide_dog_interfaces::srv::Speak::Request>();
-    request->text = "Hello! Please follow me to reach your destination. Make sure to keep a close distance between me and you.";
+    request->text = "Hello " + target_name + "! Please follow me to reach your destination. Make sure to keep a close distance between me and you.";
 
     auto future = tts_client_->async_send_request(request);
 

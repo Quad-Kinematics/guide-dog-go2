@@ -30,6 +30,11 @@ std::string PatrolState::execute(yasmin::Blackboard::SharedPtr blackboard)
     // Raise the shield: Walk is over, ignore the camera
     is_active_ = false; 
 
+    if (cancel_requested_ && !detected_person_name_.empty()) {
+        blackboard->set<std::string>("target_name", detected_person_name_);
+        RCLCPP_INFO(node_->get_logger(), "Saved target to blackboard: %s", detected_person_name_.c_str());
+    }
+
     return outcome;
 }
 
@@ -62,6 +67,7 @@ void PatrolState::face_callback(const guide_dog_interfaces::msg::DetectedFace::S
     if (msg->name != "Unknown") {
         RCLCPP_INFO(node_->get_logger(), "Face detected mid-patrol! Canceling Nav2 goal.");
 
+        detected_person_name_ = msg->name;
         cancel_requested_ = true;
         
         // This is a built-in YASMIN function that instantly stops the Action Client

@@ -21,10 +21,10 @@ def generate_launch_description():
     gait_config = os.path.join(go2_slam_pkg, "config/gait/gait.yaml")
     links_config = os.path.join(go2_slam_pkg, "config/links/links.yaml")
     urdf_path = os.path.join(go2_desc_pkg, "urdf/unitree_go2_robot.xacro")
-    # custom_world_path = os.path.join(
-    #     go2_slam_pkg, "worlds/room_human_aligned.world")
     custom_world_path = os.path.join(
-        go2_slam_pkg, "worlds/room.world")
+        go2_slam_pkg, "worlds/room_human_aligned.world")
+    # custom_world_path = os.path.join(
+    #     go2_slam_pkg, "worlds/room.world")
     rviz_config_path = os.path.join(go2_slam_pkg, "rviz/rviz.rviz")
     map_yaml_path = os.path.expanduser(
         "/home/janith/unitree_go_2_ros_ws/src/unitree_go2_ros2/unitree_go2_slam/maps/arena_map.yaml")

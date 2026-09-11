@@ -28,6 +28,7 @@ private:
     double last_yaw_;
     double accumulated_yaw_;
     bool first_odom_received_;
+    std::string detected_person_name_;
 
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg);

@@ -22,6 +22,7 @@ private:
     int current_index_;
     std::atomic<bool> cancel_requested_;
     std::atomic<bool> is_active_;
+    std::string detected_person_name_;
     
     void face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg);
 };

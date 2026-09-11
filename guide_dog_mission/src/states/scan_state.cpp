@@ -38,6 +38,7 @@ std::string ScanState::execute(yasmin::Blackboard::SharedPtr blackboard)
 
     if (face_found_) {
         RCLCPP_INFO(node_->get_logger(), "Scan interrupted: Face detected.");
+        blackboard->set<std::string>("target_name", detected_person_name_);
         return "FACE_DETECTED";
     } else {
         RCLCPP_INFO(node_->get_logger(), "Scan complete. No face found.");
@@ -69,8 +70,9 @@ void ScanState::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
 
 void ScanState::face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg) 
 {
-    if (msg->name != "Unknown" && msg->confidence > 0.75) {
+    if (msg->name != "Unknown" && msg->person_confidence > 0.75) {
         face_found_ = true;
+        detected_person_name_ = msg->name;
     }
 }
 
