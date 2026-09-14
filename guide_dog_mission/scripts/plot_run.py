@@ -2,19 +2,12 @@ import csv
 import glob
 import os
 import sys
-import yaml
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 
 WORKSPACE_DIR = os.path.expanduser('~/dog_v1_ws')
 CSV_DIR = os.path.join(WORKSPACE_DIR, 'sim_results', 'csv')
 PLOT_DIR = os.path.join(WORKSPACE_DIR, 'sim_results', 'plots')
-
-# --- MAP CONFIGURATION ---
-MAP_YAML_FILE = os.path.join(
-    WORKSPACE_DIR, 'src/unitree_go2_slam/maps/arena_map.yaml')
-MAP_PGM_FILE = os.path.join(
-    WORKSPACE_DIR, 'src/unitree_go2_slam/maps/arena_map.pgm')
 
 STATE_COLORS = {
     'IDLE': '#9e9e9e',     # Grey
@@ -106,35 +99,8 @@ def plot_trajectory(csv_file):
     # ==========================================
     # 2. GENERATE & SAVE MAP TRAJECTORY PNG
     # ==========================================
-    fig_map, ax_map = plt.subplots(figsize=(10, 8))
+    fig_map, ax_map = plt.subplots(figsize=(12, 8))
 
-    # --- LOAD AND PLOT THE BACKGROUND MAP ---
-    if os.path.exists(MAP_YAML_FILE) and os.path.exists(MAP_PGM_FILE):
-        with open(MAP_YAML_FILE, 'r') as f:
-            map_data = yaml.safe_load(f)
-
-        resolution = map_data['resolution']
-        origin = map_data['origin']  # [x, y, yaw]
-
-        # Read the image
-        map_img = plt.imread(MAP_PGM_FILE)
-        height, width = map_img.shape
-
-        # Calculate the physical extent of the map in meters
-        extent = [
-            origin[0],                     # x min
-            origin[0] + width * resolution,  # x max
-            origin[1],                     # y min
-            origin[1] + height * resolution  # y max
-        ]
-
-        # Overlay the map image (cmap='gray' ensures it looks like RViz)
-        ax_map.imshow(map_img, cmap='gray', origin='lower', extent=extent)
-        print("✅ Background map loaded successfully.")
-    else:
-        print("⚠️ Map files not found. Plotting trajectory on an empty background.")
-
-    # --- PLOT TRAJECTORY DATA ---
     seen_states = set()
 
     for segment in paths_by_state:
@@ -159,7 +125,7 @@ def plot_trajectory(csv_file):
     for i, (x, y) in enumerate(PREDEFINED_WAYPOINTS, start=1):
         ax_map.annotate(f"WP {i}", (x, y), xytext=(8, 8), textcoords='offset points',
                         fontsize=8, fontweight='bold', color='black',
-                        bbox=dict(boxstyle="round,pad=0.1", fc="white", alpha=0.7, ec="none"))
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.8, ec="gray"))
 
     for px, py, name in zip(person_x, person_y, person_names):
         ax_map.scatter(px, py, color='orange', marker='*', s=160, zorder=5)
@@ -191,19 +157,17 @@ def plot_trajectory(csv_file):
             [], [], color='purple', marker='D', linestyle='None', markersize=8, label='Speech Triggered'))
 
     ax_map.set_title(
-        f"Simulation Trajectory ({base_name})", fontsize=13, fontweight='bold')
+        f"Simulation Trajectory ({base_name})", fontsize=14, fontweight='bold', pad=15)
     ax_map.set_xlabel("X Position (meters)")
     ax_map.set_ylabel("Y Position (meters)")
 
-    # If the map is loaded, setting limits to the map extent is usually best
-    if 'extent' in locals():
-        ax_map.set_xlim(extent[0], extent[1])
-        ax_map.set_ylim(extent[2], extent[3])
+    ax_map.grid(True, linestyle='--', alpha=0.6, color='gray')
+    ax_map.set_facecolor('#fcfcfc')
 
-    ax_map.grid(False)  # Turn off grid so it doesn't clutter the map image
-    ax_map.legend(handles=legend_elements, loc='upper right',
-                  bbox_to_anchor=(1.25, 1.0))
-    ax_map.set_aspect('equal', adjustable='box')
+    ax_map.legend(handles=legend_elements, loc='center left',
+                  bbox_to_anchor=(1.02, 0.5), borderaxespad=0.)
+
+    ax_map.set_aspect('equal', adjustable='datalim')
 
     plt.tight_layout()
     map_out = os.path.join(run_dir, "trajectory_map.png")
@@ -254,23 +218,43 @@ def plot_trajectory(csv_file):
         else:
             f.write("No audio speech events recorded during this run.\n")
 
-    print(f"✅ Generated output files for {base_name}:")
-    print(f"   -> {map_out}")
-    print(f"   -> {md_out}")
-    print(f"   -> {txt_out}\n")
+    print(f"   ✅ Saved map: {os.path.basename(map_out)}")
+    print(f"   ✅ Saved FSM: {os.path.basename(md_out)}")
+    print(f"   ✅ Saved log: {os.path.basename(txt_out)}")
 
 
 if __name__ == '__main__':
     os.makedirs(CSV_DIR, exist_ok=True)
     os.makedirs(PLOT_DIR, exist_ok=True)
 
+    # If a specific file is passed via command line, plot just that one
     if len(sys.argv) > 1:
         target_file = sys.argv[1]
+        if os.path.exists(target_file):
+            print(f"🔍 Processing single file: {os.path.basename(target_file)}")
+            plot_trajectory(target_file)
+        else:
+            print(f"❌ Error: File not found -> {target_file}")
+            sys.exit(1)
+
+    # Otherwise, loop through ALL CSVs in the directory
     else:
-        csv_files = glob.glob(os.path.join(CSV_DIR, 'run_*.csv'))
+        csv_files = glob.glob(os.path.join(CSV_DIR, '*.csv'))
         if not csv_files:
             print(f"No log files found in {CSV_DIR}")
             sys.exit(1)
-        target_file = max(csv_files, key=os.path.getmtime)
 
-    plot_trajectory(target_file)
+        # Sort files by name or modification time so they process in order
+        csv_files.sort()
+
+        print(f"🔍 Found {len(csv_files)} CSV files. Processing all...\n")
+
+        for idx, csv_file in enumerate(csv_files, start=1):
+            print(f"[{idx}/{len(csv_files)}] Plotting: {os.path.basename(csv_file)}")
+            try:
+                plot_trajectory(csv_file)
+            except Exception as e:
+                print(
+                    f"   ❌ Error processing {os.path.basename(csv_file)}: {e}")
+
+        print("\n🎉 All CSV files processed successfully!")

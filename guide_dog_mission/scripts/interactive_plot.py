@@ -1,18 +1,11 @@
 import csv
 import os
 import sys
-import yaml
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 
 WORKSPACE_DIR = os.path.expanduser('~/dog_v1_ws')
 CSV_DIR = os.path.join(WORKSPACE_DIR, 'sim_results', 'csv')
-
-# --- MAP CONFIGURATION ---
-MAP_YAML_FILE = os.path.join(
-    WORKSPACE_DIR, 'src/unitree_go2_slam/maps/arena_map.yaml')
-MAP_PGM_FILE = os.path.join(
-    WORKSPACE_DIR, 'src/unitree_go2_slam/maps/arena_map.pgm')
 
 STATE_COLORS = {
     'IDLE': '#9e9e9e',
@@ -104,30 +97,6 @@ def plot_interactive_dashboard(csv_file):
     # 3. PLOT TRAJECTORY MAP (Interactive)
     # ==========================================
 
-    # --- LOAD AND PLOT THE BACKGROUND MAP ---
-    if os.path.exists(MAP_YAML_FILE) and os.path.exists(MAP_PGM_FILE):
-        with open(MAP_YAML_FILE, 'r') as f:
-            map_data = yaml.safe_load(f)
-
-        resolution = map_data['resolution']
-        origin = map_data['origin']  # [x, y, yaw]
-
-        map_img = plt.imread(MAP_PGM_FILE)
-        height, width = map_img.shape
-
-        # Calculate physical boundaries in meters
-        extent = [
-            origin[0],
-            origin[0] + width * resolution,
-            origin[1],
-            origin[1] + height * resolution
-        ]
-
-        ax_map.imshow(map_img, cmap='gray', origin='lower', extent=extent)
-        print("✅ Background map loaded successfully.")
-    else:
-        print("⚠️ Map files not found. Plotting trajectory on an empty background.")
-
     seen_states = set()
     for segment in paths_by_state:
         state_name = segment['state']
@@ -143,7 +112,6 @@ def plot_interactive_dashboard(csv_file):
         ax_map.scatter(paths_by_state[-1]['x'][-1], paths_by_state[-1]
                        ['y'][-1], color='red', marker='X', s=100, zorder=4)
 
-    # --- ADD THIS BLOCK: Plot Predefined Waypoints ---
     wp_x = [wp[0] for wp in PREDEFINED_WAYPOINTS]
     wp_y = [wp[1] for wp in PREDEFINED_WAYPOINTS]
     ax_map.scatter(wp_x, wp_y, color='cyan', marker='o',
@@ -152,7 +120,7 @@ def plot_interactive_dashboard(csv_file):
     for i, (x, y) in enumerate(PREDEFINED_WAYPOINTS, start=1):
         ax_map.annotate(f"WP {i}", (x, y), xytext=(8, 8), textcoords='offset points',
                         fontsize=8, fontweight='bold', color='black',
-                        bbox=dict(boxstyle="round,pad=0.1", fc="white", alpha=0.7, ec="none"))
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.8, ec="gray"))
 
     for px, py, name in zip(person_x, person_y, person_names):
         ax_map.scatter(px, py, color='orange', marker='*', s=160, zorder=5)
@@ -178,17 +146,19 @@ def plot_interactive_dashboard(csv_file):
         legend_elements.append(mlines.Line2D(
             [], [], color=color, lw=2.5, label=f'State: {state}'))
 
-    ax_map.set_title(f"Trajectory Map", fontsize=14, fontweight='bold')
+    ax_map.set_title(f"Trajectory Map", fontsize=14, fontweight='bold', pad=15)
     ax_map.set_xlabel("X Position (meters)")
     ax_map.set_ylabel("Y Position (meters)")
-    ax_map.grid(False)  # Turned off so gridlines don't clutter the image
+
+    # Enable clear gridlines and set background color
+    ax_map.grid(True, linestyle='--', alpha=0.6, color='gray')
+    ax_map.set_facecolor('#fcfcfc')
+
+    # Push legend horizontally below the map
     ax_map.legend(handles=legend_elements, loc='upper center',
                   bbox_to_anchor=(0.5, -0.1), ncol=4)
 
-    if 'extent' in locals():
-        ax_map.set_xlim(extent[0], extent[1])
-        ax_map.set_ylim(extent[2], extent[3])
-    ax_map.set_aspect('equal', adjustable='box')
+    ax_map.set_aspect('equal', adjustable='datalim')
 
     # ==========================================
     # 4. PLOT FSM FLOWCHART
