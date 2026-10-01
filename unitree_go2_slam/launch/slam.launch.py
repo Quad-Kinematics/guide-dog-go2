@@ -2,8 +2,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression)
 from launch_ros.actions import Node
 
 
@@ -21,13 +23,11 @@ def generate_launch_description():
     gait_config = os.path.join(go2_slam_pkg, "config/gait/gait.yaml")
     links_config = os.path.join(go2_slam_pkg, "config/links/links.yaml")
     urdf_path = os.path.join(go2_desc_pkg, "urdf/unitree_go2_robot.xacro")
-    # custom_world_path = os.path.join(
-    #     go2_slam_pkg, "worlds/room_human_aligned.world")
-    custom_world_path = os.path.join(
-        go2_slam_pkg, "worlds/room.world")
     rviz_config_path = os.path.join(go2_slam_pkg, "rviz/rviz.rviz")
-    map_yaml_path = os.path.expanduser(
-        "/home/janith/unitree_go_2_ros_ws/src/unitree_go2_ros2/unitree_go2_slam/maps/arena_map.yaml")
+    world = LaunchConfiguration("world")
+    map_yaml = LaunchConfiguration("map")
+    nav2_params = LaunchConfiguration("params_file")
+    headless = LaunchConfiguration("headless")
 
     # --- 1. ROBOT STATE PUBLISHER ---
     robot_description = {"robot_description": Command(
@@ -39,10 +39,13 @@ def generate_launch_description():
 
     # --- 2. GAZEBO SIMULATION & SPAWN ---
     pkg_ros_gz_sim = get_package_share_directory('ros_gz_sim')
+    # Headless runs only the Gazebo server; the lidar and camera still render off-screen.
+    gz_headless_args = PythonExpression(
+        ["' -s --headless-rendering' if '", headless, "' == 'true' else ''"])
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')),
-        launch_arguments={'gz_args': [custom_world_path, ' -r']}.items(),
+        launch_arguments={'gz_args': [world, ' -r', gz_headless_args]}.items(),
     )
 
     gazebo_spawn_robot = Node(
@@ -61,6 +64,7 @@ def generate_launch_description():
             '/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model',
             '/velodyne_points/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
             '/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+            '/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
             '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
             '/joint_group_effort_controller/joint_trajectory@trajectory_msgs/msg/JointTrajectory]gz.msgs.JointTrajectory',
             # '/rgb_image@sensor_msgs/msg/Image@gz.msgs.Image',
@@ -96,15 +100,19 @@ def generate_launch_description():
             {"odom_frame": "odom"}, {"world_frame": "odom"}, {
                 "publish_tf": True}, {"frequency": 50.0},
             {"two_d_mode": True}, {"odom0": "odom"},
-            {"odom0_config": [True, True, False, False, False, False,
+            # x, y and yaw from Gazebo's ground truth, plus vx, vy and yaw rate. Without absolute
+            # yaw its variance grows without bound, and because /odom has zero covariance a 1 cm
+            # gait sway in x/y could then flip the heading by 100+ degrees in one update.
+            {"odom0_config": [True, True, False, False, False, True,
                               True, True, False, False, False, True, False, False, False]}
         ]
     )
 
+    # The trunk's real height and IMU tilt; a static, level transform made the lidar sweep the
+    # floor into the scan whenever the trunk pitched.
     base_footprint_to_base_link_tf = Node(
-        package='tf2_ros', executable='static_transform_publisher',
-        arguments=['0', '0', '0.375', '0', '0',
-                   '0', 'base_footprint', 'base_link']
+        package='unitree_go2_slam', executable='body_tilt_tf', name='body_tilt_tf',
+        parameters=[{'use_sim_time': use_sim_time}],
     )
 
     controller_spawner_js = TimerAction(period=20.0, actions=[Node(
@@ -114,15 +122,20 @@ def generate_launch_description():
 
     # --- 5. RVIZ ---
     rviz_node = Node(package='rviz2', executable='rviz2', arguments=[
-                     '-d', rviz_config_path], parameters=[{'use_sim_time': use_sim_time}])
+                     '-d', rviz_config_path], parameters=[{'use_sim_time': use_sim_time}],
+                     condition=UnlessCondition(headless))
 
     # --- 6. 2D LASER CONVERTER ---
     pc_to_laserscan = Node(
         package='pointcloud_to_laserscan', executable='pointcloud_to_laserscan_node',
         remappings=[('cloud_in', '/velodyne_points/points'),
                     ('scan', '/scan')],
-        parameters=[{'target_frame': 'base_link', 'min_height': 0.1, 'max_height': 1.0, 'angle_increment': 0.0087,
-                     'scan_time': 0.1, 'range_min': 0.2, 'range_max': 30.0, 'use_inf': True, 'use_sim_time': True}],
+        # Cut the scan in the level base_footprint frame: heights are above the floor, so floor
+        # hits (z ~ 0) stay out however the trunk tilts. range_min drops the robot's own legs
+        # (the footprint reaches 0.40 m from the centre); nothing closer is visible to the lidar.
+        parameters=[{'target_frame': 'base_footprint', 'min_height': 0.15, 'max_height': 1.5,
+                     'angle_increment': 0.0087,
+                     'scan_time': 0.1, 'range_min': 0.45, 'range_max': 30.0, 'use_inf': True, 'use_sim_time': True}],
     )
 
     # --- 7. NAV2 BRINGUP ---
@@ -132,12 +145,26 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [get_package_share_directory('nav2_bringup'), 'launch', 'bringup_launch.py'])),
             launch_arguments={'use_sim_time': 'true',
-                              'map': map_yaml_path}.items()
+                              'map': map_yaml,
+                              'params_file': nav2_params}.items()
         )]
     )
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true"),
+        DeclareLaunchArgument(
+            "world", default_value=os.path.join(go2_slam_pkg, "worlds/room_human_aligned.world"),
+            description="Gazebo world; worlds/room.world has a walking person instead"),
+        DeclareLaunchArgument(
+            "map", default_value=os.path.join(go2_slam_pkg, "maps/arena_map.yaml"),
+            description="Map for AMCL and the global costmap"),
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=os.path.join(go2_slam_pkg, "config/nav2/nav2_params.yaml"),
+            description="Nav2 parameters, tuned for the Go2"),
+        DeclareLaunchArgument(
+            "headless", default_value="false",
+            description="Run Gazebo without its GUI and skip RViz"),
         robot_state_publisher_node, gz_sim, gazebo_spawn_robot, gazebo_bridge,
         quadruped_controller_node, footprint_to_odom_ekf, base_footprint_to_base_link_tf,
         controller_spawner_js, controller_spawner_effort,

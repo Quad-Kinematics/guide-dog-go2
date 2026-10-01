@@ -22,6 +22,11 @@ setup(
         # Install Rviz configs
         (os.path.join('share', package_name, 'rviz'), glob('rviz/*.rviz')),
 
+        # Install the arena map, the Nav2 parameters and the behavior tree they point to
+        (os.path.join('share', package_name, 'maps'), glob('maps/*')),
+        (os.path.join('share', package_name, 'config', 'nav2'),
+         glob('config/nav2/*.yaml') + glob('config/nav2/*.xml')),
+
         # Install the CHAMP quadruped configuration files
         (os.path.join('share', package_name, 'config', 'gait'),
          glob('config/gait/*.yaml')),
@@ -41,7 +46,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # Any future Python nodes you write would be registered here
+            'body_tilt_tf = unitree_go2_slam.body_tilt_tf:main',
+            'pose_logger = unitree_go2_slam.pose_logger:main',
+            'plot_pose_log = unitree_go2_slam.plot_pose_log:main',
         ],
     },
 )
