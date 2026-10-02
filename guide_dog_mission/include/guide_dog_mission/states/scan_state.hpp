@@ -4,10 +4,8 @@
 #include <yasmin/state.hpp>
 #include <yasmin/blackboard.hpp>
 #include <geometry_msgs/msg/twist.hpp>
-#include <nav_msgs/msg/odometry.hpp>
+#include <unitree_go/msg/sport_mode_state.hpp>
 #include "guide_dog_interfaces/msg/detected_face.hpp"
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Matrix3x3.h>
 #include <atomic>
 #include <cmath>
 
@@ -19,7 +17,7 @@ public:
 private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sport_state_sub_;
     rclcpp::Subscription<guide_dog_interfaces::msg::DetectedFace>::SharedPtr face_sub_;
 
     std::atomic<bool> face_found_;
@@ -29,7 +27,6 @@ private:
     double accumulated_yaw_;
     bool first_odom_received_;
 
-    void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+    void sport_state_callback(const unitree_go::msg::SportModeState::SharedPtr msg);
     void face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg);
-    double get_yaw_from_quaternion(const geometry_msgs::msg::Quaternion& q);
 };

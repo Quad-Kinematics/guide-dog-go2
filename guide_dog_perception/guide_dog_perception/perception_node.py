@@ -18,7 +18,7 @@ class PerceptionNode(Node):
 
         self.image_sub = self.create_subscription(
             Image,
-            '/d455/image',
+            '/camera/camera/color/image_raw',
             self.image_callback,
             10
         )

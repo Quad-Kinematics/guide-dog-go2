@@ -1,0 +1,78 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>guide_dog_audio</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="janithchamikara13@gmail.com">janith</maintainer>
+  <license>TODO: License declaration</license>
+
+  <depend>rclpy</depend>
+  <depend>guide_dog_interfaces</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  import rclpy
+import json
+from rclpy.node import Node
+from guide_dog_interfaces.srv import Speak
+from unitree_api.msg import Request
+
+class TTSNode(Node):
+    def __init__(self):
+        super().__init__('tts_node')
+
+        # Create a publisher that talks directly to the Go2's Voice User Interface
+        self.vui_pub = self.create_publisher(Request, '/api/vui/request', 10)
+
+        self.srv = self.create_service(
+            Speak,
+            '/speak',
+            self.speak_callback
+        )
+        self.get_logger().info("Audio package online. TTS Service ready on '/speak'")
+
+    def speak_callback(self, request, response):
+        self.get_logger().info(f"Received request to speak: '{request.text}'")
+
+        try:
+            # Build the Unitree API request message
+            req_msg = Request()
+            
+            # Set the API ID for TTS synthesis (1005 is typical for Go2 VUI text commands)
+            req_msg.header.identity.api_id = 1005
+            
+            # The Unitree SDK expects the command in a JSON formatted string
+            payload = {"text": request.text}
+            req_msg.parameter = json.dumps(payload)
+            
+            # Publish it to the robot's SDK
+            self.vui_pub.publish(req_msg)
+
+            response.success = True
+        except Exception as e:
+            self.get_logger().error(f"TTS API failed: {e}")
+            response.success = False
+
+        return response
+
+def main(args=None):
+    rclpy.init(args=args)
+    tts_node = TTSNode()
+
+    try:
+        rclpy.spin(tts_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        tts_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

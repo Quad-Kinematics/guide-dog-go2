@@ -7,8 +7,8 @@ ScanState::ScanState(rclcpp::Node::SharedPtr node)
 {
     cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
     
-    odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
-        "/odom", 10, std::bind(&ScanState::odom_callback, this, std::placeholders::_1));
+    sport_state_sub_ = node_->create_subscription<unitree_go::msg::SportModeState>(
+        "/sportmodestate", 10, std::bind(&ScanState::sport_state_callback, this, std::placeholders::_1));
         
     face_sub_ = node_->create_subscription<guide_dog_interfaces::msg::DetectedFace>(
         "/detected_face", 10, std::bind(&ScanState::face_callback, this, std::placeholders::_1));
@@ -45,9 +45,9 @@ std::string ScanState::execute(yasmin::Blackboard::SharedPtr blackboard)
     }
 }
 
-void ScanState::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) 
+void ScanState::sport_state_callback(const unitree_go::msg::SportModeState::SharedPtr msg) 
 {
-    double current_yaw = get_yaw_from_quaternion(msg->pose.pose.orientation);
+    double current_yaw = msg->imu_state.rpy[2];
 
     if (!first_odom_received_) {
         last_yaw_ = current_yaw;
@@ -72,13 +72,4 @@ void ScanState::face_callback(const guide_dog_interfaces::msg::DetectedFace::Sha
     if (msg->name != "Unknown" && msg->confidence > 0.75) {
         face_found_ = true;
     }
-}
-
-double ScanState::get_yaw_from_quaternion(const geometry_msgs::msg::Quaternion& msg_q) 
-{
-    tf2::Quaternion q(msg_q.x, msg_q.y, msg_q.z, msg_q.w);
-    tf2::Matrix3x3 m(q);
-    double roll, pitch, yaw;
-    m.getRPY(roll, pitch, yaw);
-    return yaw;
 }

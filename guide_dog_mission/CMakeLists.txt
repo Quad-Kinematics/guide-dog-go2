@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.8)
 project(guide_dog_mission)
 
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -16,6 +20,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(guide_dog_interfaces REQUIRED)
+find_package(unitree_go REQUIRED)
 
 include_directories(include)
 
@@ -39,6 +44,7 @@ ament_target_dependencies(main_fsm
   tf2
   tf2_geometry_msgs
   guide_dog_interfaces
+  unitree_go
 )
 
 target_link_libraries(main_fsm yasmin_viewer::yasmin_viewer)
