@@ -1,0 +1,13 @@
+#!/bin/bash
+# Runs go2_rtc_keepalive.py with a Python that has go2_webrtc_driver (needs
+# >= 3.10; the system Python 3.8 is too old). Override with GO2_RTC_PYTHON.
+# Launch arguments (--ros-args ...) are ignored: this is not a ROS node.
+# Default: <workspace>/venv from scripts/setup_venv.sh (this wrapper is
+# installed at <workspace>/install/guide_dog_audio/lib/guide_dog_audio/).
+HERE="$(dirname "$(readlink -f "$0")")"
+PY="${GO2_RTC_PYTHON:-$(cd "$HERE/../../../.." && pwd)/venv/bin/python}"
+if [[ ! -x "$PY" ]]; then
+    echo "[go2_rtc_keepalive] $PY not found; run src/guide_dog_audio/scripts/setup_venv.sh or set GO2_RTC_PYTHON to a Python with go2_webrtc_driver" >&2
+    exit 1
+fi
+exec "$PY" -u "$HERE/go2_rtc_keepalive.py"

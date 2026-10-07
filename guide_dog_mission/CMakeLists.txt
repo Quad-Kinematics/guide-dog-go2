@@ -17,6 +17,7 @@ find_package(yasmin_ros REQUIRED)
 find_package(yasmin_viewer REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(guide_dog_interfaces REQUIRED)
@@ -41,6 +42,7 @@ ament_target_dependencies(main_fsm
   yasmin_ros
   nav2_msgs
   geometry_msgs
+  std_msgs
   tf2
   tf2_geometry_msgs
   guide_dog_interfaces

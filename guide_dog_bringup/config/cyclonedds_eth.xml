@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <General>
+            <Interfaces>
+                <NetworkInterface name="eth0" priority="default" multicast="default" />
+            </Interfaces>
+            <!-- Multicast for discovery only. With full multicast, same-host data
+                 (the 1.66 MB Hesai clouds) went out eth0 and capped at ~100 Mbit/s,
+                 so scans arrived ~2.5 s late and Nav2 aborted on stale map->odom. -->
+            <AllowMulticast>spdp</AllowMulticast>
+        </General>
+    </Domain>
+</CycloneDDS>

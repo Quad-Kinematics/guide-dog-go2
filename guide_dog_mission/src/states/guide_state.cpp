@@ -6,11 +6,13 @@ GuideState::GuideState(rclcpp::Node::SharedPtr node)
           std::bind(&GuideState::create_goal_handler, this, std::placeholders::_1)),
       node_(node)
 {
+    announce_pub_ = create_announce_publisher(node_);
 }
 
 nav2_msgs::action::NavigateToPose::Goal GuideState::create_goal_handler(yasmin::Blackboard::SharedPtr blackboard)
 {
     RCLCPP_INFO(node_->get_logger(), "Starting GUIDE state. Escorting target to the Lab.");
+    announce(announce_pub_, "I am guiding you to the destination.");
 
     nav2_msgs::action::NavigateToPose::Goal goal;
     

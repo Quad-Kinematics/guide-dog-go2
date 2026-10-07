@@ -2,6 +2,7 @@
 
 IdleState::IdleState(rclcpp::Node::SharedPtr node):yasmin::State({"START"}), node_(node), start_requested_(false){
     service_ = node_->create_service<std_srvs::srv::Trigger>("/start_mission", std::bind(&IdleState::handle_start_request, this, std::placeholders::_1, std::placeholders::_2));
+    announce_pub_ = create_announce_publisher(node_);
 }
 
 std::string IdleState::execute(yasmin::Blackboard::SharedPtr blackboard) 
@@ -9,9 +10,15 @@ std::string IdleState::execute(yasmin::Blackboard::SharedPtr blackboard)
     RCLCPP_INFO(node_->get_logger(), "Robot is IDLE. Waiting for /start_mission service call...");
     
     start_requested_ = false;
+    bool announced = false;
 
     // Loop until the flag is flipped by the service callback
     while (rclcpp::ok() && !start_requested_) { //Srinath asked to check whether we have a better approch than this or not.
+        // At launch tts_node may not be up yet, and an unheard announcement is lost
+        if (!announced && announce_pub_->get_subscription_count() > 0) {
+            announce(announce_pub_, "I am in idle state. Send the start mission request to begin.");
+            announced = true;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 

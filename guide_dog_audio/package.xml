@@ -3,20 +3,25 @@
 <package format="3">
   <name>guide_dog_audio</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Speaks text on the Go2's own speaker (espeak-ng + Go2 audio hub)</description>
   <maintainer email="janithchamikara13@gmail.com">janith</maintainer>
   <license>TODO: License declaration</license>
 
-  <depend>rclpy</depend>
-  <depend>guide_dog_interfaces</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
-  <exec_depend>unitree_api</exec_depend>
+  <depend>rclcpp</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>std_msgs</depend>
+  <depend>guide_dog_interfaces</depend>
+  <depend>unitree_api</depend>
+  <depend>nlohmann-json-dev</depend>
+  <depend>libssl-dev</depend>
+  <depend>espeak-ng</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

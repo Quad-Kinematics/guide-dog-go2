@@ -1,9 +1,13 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from guide_dog_interfaces.msg import DetectedFace
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
+import torch
 from ultralytics import YOLO
 
 
@@ -13,14 +17,33 @@ class PerceptionNode(Node):
 
         self.bridge = CvBridge()
 
-        self.get_logger().info("Loading YOLOv8 Nano model...")
-        self.model = YOLO('yolov8n.pt')
+        # Default: the copy installed with this package, so the node runs from
+        # any directory. Missing file = error: YOLO() would otherwise try to
+        # download weights from the internet.
+        model_path = self.declare_parameter(
+            'model_path',
+            os.path.join(get_package_share_directory('guide_dog_perception'),
+                         'models', 'yolov8n.pt')).value
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(f"YOLO model not found: {model_path}")
 
+        # Inference runs on the CPU (no CUDA torch on the Jetson). 4 threads
+        # take ~210 ms/frame vs ~185 ms with all 8, and leave half the cores
+        # to Nav2 so the controller keeps its rate.
+        num_threads = self.declare_parameter('num_threads', 4).value
+        if num_threads > 0:
+            torch.set_num_threads(num_threads)
+
+        self.get_logger().info(f"Loading YOLOv8 Nano model from {model_path}...")
+        self.model = YOLO(model_path)
+
+        # Depth 1: inference is slower than the 30 fps camera, so always take
+        # the newest frame. A deeper queue makes ALIGN steer on stale offsets.
         self.image_sub = self.create_subscription(
             Image,
             '/camera/camera/color/image_raw',
             self.image_callback,
-            10
+            1
         )
 
         self.face_pub = self.create_publisher(

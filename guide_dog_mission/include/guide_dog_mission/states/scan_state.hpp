@@ -6,6 +6,7 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <unitree_go/msg/sport_mode_state.hpp>
 #include "guide_dog_interfaces/msg/detected_face.hpp"
+#include "guide_dog_mission/announce.hpp"
 #include <atomic>
 #include <cmath>
 
@@ -19,6 +20,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
     rclcpp::Subscription<unitree_go::msg::SportModeState>::SharedPtr sport_state_sub_;
     rclcpp::Subscription<guide_dog_interfaces::msg::DetectedFace>::SharedPtr face_sub_;
+    AnnouncePublisher::SharedPtr announce_pub_;
 
     std::atomic<bool> face_found_;
     

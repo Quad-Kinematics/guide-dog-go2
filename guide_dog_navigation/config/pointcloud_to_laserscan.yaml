@@ -1,0 +1,38 @@
+/**:
+  ros__parameters:
+    # ========== FRAME & TIMING ==========
+    # Use the LiDAR frame so height slicing is relative to the sensor plane
+    target_frame: hesai_lidar
+
+    # Big transform_tolerance causes smear when moving; keep tight
+    transform_tolerance: 0.05
+
+    # Approx scan period (10 Hz). If yours is 20 Hz, set 0.05
+    scan_time: 0.1
+
+    # ========== HEIGHT FILTERING ==========
+    # Tight slice around LiDAR plane reduces leg/body/self-hits
+    min_height: -0.05
+    max_height:  0.05
+
+    # ========== ANGULAR RANGE ==========
+    angle_min: -3.14159
+    angle_max:  3.14159
+
+    # Higher angular fidelity than 1 deg (reduces jagged walls)
+    # 0.5 deg:
+    angle_increment: 0.00872665
+    # If CPU allows, you can go finer:
+    # angle_increment: 0.00436332   # 0.25 deg
+
+    # ========== RANGE FILTERING ==========
+    range_min: 0.25
+
+    # Indoors, far points add noise and degrade scan matching
+    range_max: 20.0
+
+    # ========== INFINITY HANDLING ==========
+    # Keep true for cleaner LaserScan semantics. If a websocket relay cannot
+    # handle INF values, sanitize None/null on the relay side while republishing.
+    use_inf: true
+    inf_epsilon: 1.0

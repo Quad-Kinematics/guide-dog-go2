@@ -4,18 +4,21 @@ PatrolState::PatrolState(rclcpp::Node::SharedPtr node)
    : yasmin_ros::ActionState<nav2_msgs::action::NavigateToPose>(
           "/navigate_to_pose",
           std::bind(&PatrolState::create_goal_handler, this, std::placeholders::_1)),
-      node_(node), current_index_(0), cancel_requested_(false), is_active_(false)
+      node_(node), current_index_(0), cancel_requested_(false), is_active_(false),
+      detection_count_(0)
 {
     waypoints_ = {
-        {-6.843293190002441, 10.969597816467285, 0.0},     
-        {-6.4901347160339355, -0.03098297119140625, 0.0},    
-        {-19.790630340576172, 5.773326873779297, 0.0}      
+        {-7.2758965492248535, 2.932074785232544, 0.0},     
+        {-6.386472702026367, 0.44359540939331055, 0.0},    
+        {-14.508125305175781, 5.986011505126953, 0.0}      
     };
 
     face_sub_ = node_->create_subscription<guide_dog_interfaces::msg::DetectedFace>(
         "/detected_face", 10, 
         std::bind(&PatrolState::face_callback, this, std::placeholders::_1)
     );
+
+    announce_pub_ = create_announce_publisher(node_);
 }
 
 std::string PatrolState::execute(yasmin::Blackboard::SharedPtr blackboard)
@@ -23,6 +26,7 @@ std::string PatrolState::execute(yasmin::Blackboard::SharedPtr blackboard)
     // Lower the shield: We are walking, listen to the camera
     is_active_ = true;
     cancel_requested_ = false;
+    detection_count_ = 0;
 
     // Run the standard YASMIN Action Client loop
     std::string outcome = yasmin_ros::ActionState<nav2_msgs::action::NavigateToPose>::execute(blackboard);
@@ -39,6 +43,7 @@ nav2_msgs::action::NavigateToPose::Goal PatrolState::create_goal_handler(yasmin:
 
     auto coords = waypoints_[current_index_];
     RCLCPP_INFO(node_->get_logger(), "Patrol heading to Waypoint %d [x:%.2f, y:%.2f]", current_index_, coords[0], coords[1]);
+    announce(announce_pub_, "I am patrolling to waypoint " + std::to_string(current_index_ + 1) + ".");
 
     nav2_msgs::action::NavigateToPose::Goal goal;
     goal.pose.header.frame_id = "map";
@@ -60,11 +65,21 @@ void PatrolState::face_callback(const guide_dog_interfaces::msg::DetectedFace::S
     }
     // If we see Janith while walking...
     if (msg->name != "Unknown") {
+        const rclcpp::Time now = node_->now();
+        if (detection_count_ > 0 &&
+            (now - last_detection_time_).seconds() > max_detection_gap_sec_) {
+            detection_count_ = 0;  // the earlier hits were too long ago, start over
+        }
+        last_detection_time_ = now;
+        if (++detection_count_ < min_detections_) {
+            return;
+        }
+
         RCLCPP_INFO(node_->get_logger(), "Face detected mid-patrol! Canceling Nav2 goal.");
 
         cancel_requested_ = true;
-        
+
         // This is a built-in YASMIN function that instantly stops the Action Client
-        this->cancel_state(); 
+        this->cancel_state();
     }
 }

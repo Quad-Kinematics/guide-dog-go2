@@ -1,0 +1,405 @@
+# ============================================================================
+# Nav2 Configuration for Unitree Go2 Robot (Foxy)
+# Tuned for stable / forgiving navigation (near-goal acceptable)
+#
+# Regulated Pure Pursuit variant of nav2_params_dwb.yaml. Differences:
+# controller_server.FollowPath and the local inflation_layer only. Keep the
+# rest in sync with nav2_params_dwb.yaml.
+# Select with: NAV2_CONTROLLER=rpp start_robot.sh (or controller:=rpp)
+# ============================================================================
+
+# ============================================================================
+# AMCL - Adaptive Monte Carlo Localization
+# ============================================================================
+amcl:
+  ros__parameters:
+    use_sim_time: false
+
+    # Frame IDs
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+
+    # Sensor configuration
+    scan_topic: "/scan"
+
+    # TF
+    tf_broadcast: true
+    transform_tolerance: 0.5   # Helps with small TF delays on real robot/network
+
+    # Initialization
+    set_initial_pose: false
+    save_pose_rate: 0.5        # Save estimated pose periodically (Hz)
+
+    # Particle filter size
+    min_particles: 300         # Slightly higher minimum for better robustness
+    max_particles: 2500
+
+    # Particle filter convergence params
+    pf_err: 0.05
+    pf_z: 0.99
+
+    # Update cadence: frequent updates keep each map->odom correction small
+    # (0.30 / 0.50 made every correction a visible jump in RViz)
+    update_min_d: 0.10         # meters before filter update
+    update_min_a: 0.10         # radians before filter update
+    # Scans 10 cm apart are highly correlated; resampling on every one made the
+    # filter overconfident and snap between look-alike spots in the hallways.
+    resample_interval: 2
+
+    # Recovery from localization degradation
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+
+    # Odometry motion model: omni, even for mostly-forward driving. The default
+    # "differential" model derives a heading from every odom translation over 1 cm,
+    # so the trunk's 1-3 cm gait sway while turning on the spot became random heading
+    # noise and AMCL's pose jumped on every turn. Same fix as the simulation branch
+    # (nav2_amcl::OmniMotionModel there; Foxy names it "omnidirectional").
+    robot_model_type: "omnidirectional"
+
+    # Odometry model noise (tune later if needed)
+    alpha1: 0.15
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.15
+    alpha5: 0.2
+
+    # Laser model
+    laser_model_type: "likelihood_field"
+    # 120 of the 720 scan beams: at 60 the sparse window frames and pillars along
+    # the glass hallways were rarely sampled, leaving the pose along them loose.
+    max_beams: 120
+    laser_likelihood_max_dist: 2.0
+    # Below the 20 m scan cap on purpose: beams past 10 m on floor 15 mostly go
+    # through the glass walls and hit things outside the map. The likelihood field
+    # model skips max-range beams, so capping here drops them.
+    laser_max_range: 10.0
+    laser_min_range: 0.05
+
+    z_hit: 0.5
+    z_short: 0.05
+    z_max: 0.05
+    z_rand: 0.4                # slightly lower random than before
+    sigma_hit: 0.2
+    lambda_short: 0.1
+
+    # Beam skipping (Foxy support may vary by build; keep commented if unsupported)
+    # do_beamskip: false
+    # beam_skip_distance: 0.5
+    # beam_skip_threshold: 0.3
+    # beam_skip_error_threshold: 0.9
+
+# ============================================================================
+# MAP SERVER
+# ============================================================================
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: ""   # set by navigation.launch.py (map argument)
+
+# ============================================================================
+# CONTROLLER SERVER
+# ============================================================================
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    odom_topic: "/utlidar/robot_odom"
+    controller_frequency: 20.0
+
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.05
+
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    # More forgiving stuck detection (reduces false recoveries while rotating/re-aligning)
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.03
+      # 40 s left the robot frozen in front of a new obstacle before the BT
+      # cleared costmaps and ran recoveries. Turning in place takes ~4 s.
+      movement_time_allowance: 15.0
+
+    # Near-goal is acceptable (reduces final twitching)
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.45
+      yaw_goal_tolerance: 3.14   # any heading OK: SCAN spins 360 at each waypoint
+      stateful: false
+
+    # Regulated Pure Pursuit (Foxy 0.4.7) instead of DWB. MPPI is Humble+ only.
+    # Follows the NavFn path (replanned at 1 Hz around new obstacles) instead of
+    # sampling its own trajectories, so motion is steadier: forward + yaw only,
+    # in-place turns at a fixed rate, slowdown in curves and near obstacles.
+    # It does not steer around obstacles itself: if the center is projected to
+    # reach the inscribed zone within max_allowed_time_to_collision it stops and
+    # FollowPath fails, and the BT clears the local costmap and replans.
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.5     # same top speed as the DWB config
+      transform_tolerance: 0.5
+
+      # Fixed carrot distance. The velocity-scaled one (odom speed *
+      # lookahead_time, 0.5-1.2 m) moved the carrot, and with it the yaw rate,
+      # with every change in the Go2's measured speed, which now also lags the
+      # cmd_vel bridge's ramp. A short carrot at low speed also put it > 45 deg
+      # off more often (stop and turn in place).
+      # 0.8 m is about what full speed gave. Must stay under half the local
+      # costmap (2 m): the plan is cut there.
+      use_velocity_scaled_lookahead_dist: false
+      lookahead_dist: 0.8
+
+      # Foxy RPP clamps each command to the measured odom speed + accel * 0.05 s.
+      # At 0.8 / 1.2 a standing Go2 got 0.04 m/s and 0.06 rad/s, which it only
+      # steps in place to, so odom stayed ~0 and it never got going ("Failed to
+      # make progress" after 73 s). 20 makes the clamp a no-op. Ramping is done
+      # open loop in guide_dog_base cmd_vel_bridge instead:
+      # accel 0.8 m/s^2 and 1.2 rad/s^2, decel 1.0 / 1.5, plus a 0.1 s low-pass.
+      max_linear_accel: 20.0
+      max_linear_decel: 20.0
+
+      # Turn in place (no forward motion) while the carrot is > 45 deg off the
+      # heading, e.g. after SCAN's 360 spin
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785
+      rotate_to_heading_angular_vel: 0.7
+      max_angular_accel: 20.0      # same clamp as max_linear_accel above
+      # Foxy also turns to the goal's yaw inside goal_dist_tol. Keep it below
+      # xy_goal_tolerance (0.45) so the goal checker finishes first: waypoints
+      # have no yaw set and SCAN spins anyway.
+      goal_dist_tol: 0.1
+
+      # Slow down on tight curves (radius < 0.9 m) and near obstacles
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.2
+      use_cost_regulated_linear_velocity_scaling: true
+      cost_scaling_dist: 0.6
+      cost_scaling_gain: 1.0
+      inflation_cost_scaling_factor: 3.0   # must match local inflation_layer
+      use_approach_linear_velocity_scaling: true
+      min_approach_linear_velocity: 0.1
+
+      max_allowed_time_to_collision: 1.0
+
+# ============================================================================
+# PLANNER SERVER
+# ============================================================================
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    expected_planner_frequency: 5.0
+    planner_plugins: ["GridBased"]
+
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.5
+      use_astar: false
+      allow_unknown: true
+
+# ============================================================================
+# RECOVERIES SERVER
+# ============================================================================
+recoveries_server:
+  ros__parameters:
+    use_sim_time: false
+    costmap_topic: /local_costmap/costmap_raw
+    footprint_topic: /local_costmap/published_footprint
+    cycle_frequency: 5.0
+    recovery_plugins: ["spin", "backup", "wait"]
+
+    # Foxy's Spin reads these from recoveries_server itself, not from under
+    # spin:, and calls the accel rotational_acc_lim. Under spin: they were
+    # ignored and the spin recovery turned at the 1.0 rad/s default.
+    max_rotational_vel: 0.40
+    min_rotational_vel: 0.20
+    rotational_acc_lim: 0.50
+
+    spin:
+      plugin: "nav2_recoveries/Spin"
+    backup:
+      plugin: "nav2_recoveries/BackUp"
+    wait:
+      plugin: "nav2_recoveries/Wait"
+
+# ============================================================================
+# BT NAVIGATOR
+# ============================================================================
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: "map"
+    robot_base_frame: "base_link"
+    odom_topic: "/utlidar/robot_odom"
+
+    default_bt_xml_filename: "/opt/ros/foxy/share/nav2_bt_navigator/behavior_trees/navigate_w_replanning_and_recovery.xml"
+
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_reinitialize_global_localization_service_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_distance_controller_bt_node
+      - nav2_speed_controller_bt_node
+      - nav2_truncate_path_action_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_time_expired_condition_bt_node
+      - nav2_distance_traveled_condition_bt_node
+
+# ============================================================================
+# WAYPOINT FOLLOWER
+# ============================================================================
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: false
+    loop_rate: 20
+    stop_on_failure: false
+
+# ============================================================================
+# GLOBAL COSTMAP
+# ============================================================================
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: false
+
+      global_frame: map
+      robot_base_frame: base_link
+      footprint: "[ [0.410, 0.350], [0.410, -0.350], [-0.410, -0.350], [-0.410, 0.350] ]"
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      transform_tolerance: 0.5
+      # Full 1385x1305 grid every publish lags RViz over rosbridge; send only
+      # changed cells on costmap_updates
+      always_send_full_costmap: false
+
+      resolution: 0.05
+      track_unknown_space: true
+      rolling_window: false
+
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        # scan marks, scan_clear clears. The height limits drop scan points
+        # before raytracing too, and with the body tilted 1-2 deg the far and
+        # inf (range_max) points fall below 0.3 m, so cells stayed lethal.
+        # /scan is already a +-5 cm slice of the LiDAR plane.
+        observation_sources: scan scan_clear
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          # /scan uses inf for empty beams (use_inf); without this Foxy drops
+          # them and never clears along them
+          inf_is_valid: true
+          marking: true
+          clearing: false
+          # Foxy names (obstacle_max_range/raytrace_max_range are ignored here)
+          obstacle_range: 3.0
+          raytrace_range: 4.0
+          max_obstacle_height: 2.0
+          # Heights here are in the map frame, not odom. AMCL puts base_link
+          # level at z=0 in map, so every /scan point sits at the LiDAR's
+          # 0.12 m mount height. The local costmap's 0.3 (odom frame, base_link
+          # ~0.3 m up while standing) dropped all of them here: new obstacles
+          # never reached the global costmap and NavFn planned straight through.
+          min_obstacle_height: 0.0
+        scan_clear:
+          topic: /scan
+          data_type: "LaserScan"
+          inf_is_valid: true
+          marking: false
+          clearing: true
+          obstacle_range: 3.0
+          raytrace_range: 4.0
+          max_obstacle_height: 10.0
+          min_obstacle_height: -10.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # NavFn only blocks cost >= 253 (inscribed, 0.35 m), so this only adds
+        # cost and narrow passages stay open. At 0.50/3.0 the band past 0.35 m
+        # was 0.15 m and detours hugged new obstacles; DWB then could not follow
+        # them in the local costmap and stood still.
+        inflation_radius: 1.0
+        cost_scaling_factor: 2.5
+
+# ============================================================================
+# LOCAL COSTMAP
+# ============================================================================
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: false
+
+      global_frame: odom
+      robot_base_frame: base_link
+      footprint: "[ [0.410, 0.350], [0.410, -0.350], [-0.410, -0.350], [-0.410, 0.350] ]"
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      transform_tolerance: 0.5
+      # Keep true: the grid is only 80x80, and with false a rolling window sends
+      # a full grid only when it moves, so RViz shows nothing while standing still
+      always_send_full_costmap: true
+
+      rolling_window: true
+      width: 4                    # increased from 3 for better local context
+      height: 4                   # increased from 3 for better local context
+      resolution: 0.05
+
+      plugins: ["obstacle_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan scan_clear   # see global_costmap
+
+        scan:
+          topic: /scan
+          # Foxy names (obstacle_max_range/raytrace_max_range are ignored here)
+          obstacle_range: 2.5
+          raytrace_range: 3.0
+          inf_is_valid: true          # see global_costmap scan source
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.3
+          clearing: false
+          marking: true
+          data_type: "LaserScan"
+        scan_clear:
+          topic: /scan
+          obstacle_range: 2.5
+          raytrace_range: 3.0
+          inf_is_valid: true
+          max_obstacle_height: 10.0
+          min_obstacle_height: -10.0
+          clearing: true
+          marking: false
+          data_type: "LaserScan"
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # RPP only treats cost >= 253 (center within the 0.35 m inscribed
+        # radius) as collision, so a wider band does not block anything. It
+        # gives cost_scaling_dist (0.6) costs to read: at 0.45 the band ended
+        # 0.10 m past inscribed and the slowdown near obstacles never kicked in.
+        inflation_radius: 0.8
+        cost_scaling_factor: 3.0  # = FollowPath.inflation_cost_scaling_factor

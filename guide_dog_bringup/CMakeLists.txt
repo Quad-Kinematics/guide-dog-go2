@@ -18,12 +18,15 @@ endif()
 # Install launch and config directories
 install(DIRECTORY
   launch
+  config
   DESTINATION share/${PROJECT_NAME}
 )
 
 # Install bash scripts as executable programs
 install(PROGRAMS
   scripts/start_robot.sh
+  scripts/start_mapping.sh
+  scripts/start_robot_legacy.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 

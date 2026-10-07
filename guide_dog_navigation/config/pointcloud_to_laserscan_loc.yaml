@@ -1,0 +1,32 @@
+/**:
+  ros__parameters:
+    # Scan for AMCL only. It must match the slice the map was built from, not
+    # the obstacle slice in pointcloud_to_laserscan.yaml (the costmaps keep
+    # using that one on /scan). floor_15_map (2026-09-03) was built with:
+    #   pointcloud_to_laserscan_node -r cloud_in:=/lidar_points
+    #     -p target_frame:=hesai_lidar -p min_height:=0.1 -p max_height:=0.5
+    #     -p angle_min:=-3.1415 -p angle_max:=3.1415
+    #     -p range_min:=0.4 -p range_max:=30.0 -p use_inf:=true
+    # If you rebuild the map with different values, change these to match.
+
+    # ========== FRAME & TIMING ==========
+    target_frame: hesai_lidar
+    # Same as the obstacle scan; does not change the slice geometry
+    transform_tolerance: 0.05
+
+    # ========== HEIGHT FILTERING ==========
+    # 0.1-0.5 m above the LiDAR plane: walls, pillars, desks
+    min_height: 0.1
+    max_height: 0.5
+
+    # ========== ANGULAR RANGE ==========
+    # angle_increment is left at the default, as it was when mapping
+    angle_min: -3.1415
+    angle_max:  3.1415
+
+    # ========== RANGE FILTERING ==========
+    range_min: 0.4
+    range_max: 30.0
+
+    # ========== INFINITY HANDLING ==========
+    use_inf: true

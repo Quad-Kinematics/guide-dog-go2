@@ -3,6 +3,7 @@
 #include <yasmin/blackboard.hpp>
 #include <yasmin_ros/action_state.hpp>
 #include <nav2_msgs/action/navigate_to_pose.hpp>
+#include "guide_dog_mission/announce.hpp"
 
 class GuideState : public yasmin_ros::ActionState<nav2_msgs::action::NavigateToPose> {
 public:
@@ -12,4 +13,5 @@ public:
 
 private:
     rclcpp::Node::SharedPtr node_;
+    AnnouncePublisher::SharedPtr announce_pub_;
 };
