@@ -1,4 +1,5 @@
 #include "guide_dog_mission/states/scan_state.hpp"
+#include "guide_dog_mission/states/align_state.hpp"
 #include <thread>
 #include <chrono>
 
@@ -44,6 +45,7 @@ std::string ScanState::execute(yasmin::Blackboard::SharedPtr blackboard)
         return "FACE_DETECTED";
     } else {
         RCLCPP_INFO(node_->get_logger(), "Scan complete. No face found.");
+        blackboard->set<bool>(kTargetLostKey, false);  // the person is gone; a new one gets the ALIGN line
         return "NO_FACE";
     }
 }

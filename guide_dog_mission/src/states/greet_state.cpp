@@ -5,11 +5,14 @@ GreetState::GreetState(rclcpp::Node::SharedPtr node)
     : yasmin::State({"SPOKEN", "FAILED"}), node_(node)
 {
     tts_client_ = node_->create_client<guide_dog_interfaces::srv::Speak>("/speak");
+    announce_pub_ = create_announce_publisher(node_);
 }
 
 std::string GreetState::execute(yasmin::Blackboard::SharedPtr blackboard) 
 {
     RCLCPP_INFO(node_->get_logger(), "Entering GREET state. Preparing to speak.");
+    // A queued ALIGN line would otherwise play first ("Turning to face you" after the turn)
+    clear_announcement(announce_pub_);
 
     if (!tts_client_->wait_for_service(std::chrono::seconds(3))) {
         RCLCPP_ERROR(node_->get_logger(), "TTS Service not available. Skipping greet.");

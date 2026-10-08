@@ -3,6 +3,7 @@
 #include <yasmin/state.hpp>
 #include <yasmin/blackboard.hpp>
 #include "guide_dog_interfaces/srv/speak.hpp"
+#include "guide_dog_mission/announce.hpp"
 #include <chrono>
 
 class GreetState : public yasmin::State {
@@ -13,4 +14,5 @@ public:
 private:
     rclcpp::Node::SharedPtr node_;
     rclcpp::Client<guide_dog_interfaces::srv::Speak>::SharedPtr tts_client_;
+    AnnouncePublisher::SharedPtr announce_pub_;
 };

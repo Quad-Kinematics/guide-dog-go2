@@ -6,11 +6,13 @@ ArriveState::ArriveState(rclcpp::Node::SharedPtr node)
     : yasmin::State({"DONE"}), node_(node)
 {
     tts_client_ = node_->create_client<guide_dog_interfaces::srv::Speak>("/speak");
+    announce_pub_ = create_announce_publisher(node_);
 }
 
 std::string ArriveState::execute(yasmin::Blackboard::SharedPtr blackboard) 
 {
     RCLCPP_INFO(node_->get_logger(), "Destination reached. Entering ARRIVE state.");
+    clear_announcement(announce_pub_);  // a queued GUIDE line must not play after this
 
     if (!tts_client_->wait_for_service(std::chrono::seconds(2))) {
         RCLCPP_WARN(node_->get_logger(), "Audio node offline. Skipping spoken arrival.");

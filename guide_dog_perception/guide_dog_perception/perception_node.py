@@ -7,8 +7,11 @@ from sensor_msgs.msg import Image
 from guide_dog_interfaces.msg import DetectedFace
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
-import torch
-from ultralytics import YOLO
+import numpy as np
+import onnxruntime as ort
+
+CONF_THRESHOLD = 0.50  # 50% confidence threshold
+PERSON_CLASS = 0       # Class 0 in the COCO dataset is 'Person'
 
 
 class PerceptionNode(Node):
@@ -17,25 +20,33 @@ class PerceptionNode(Node):
 
         self.bridge = CvBridge()
 
-        # Default: the copy installed with this package, so the node runs from
-        # any directory. Missing file = error: YOLO() would otherwise try to
-        # download weights from the internet.
+        # Default: the ONNX copy installed with this package, so the node runs
+        # from any directory. Missing file = error instead of falling back to
+        # anything that downloads weights.
         model_path = self.declare_parameter(
             'model_path',
             os.path.join(get_package_share_directory('guide_dog_perception'),
-                         'models', 'yolov8n.pt')).value
+                         'models', 'yolov8n_384x640.onnx')).value
+        if not model_path.endswith('.onnx'):
+            raise ValueError(f"model_path must be an ONNX export: {model_path}")
         if not os.path.isfile(model_path):
             raise FileNotFoundError(f"YOLO model not found: {model_path}")
 
-        # Inference runs on the CPU (no CUDA torch on the Jetson). 4 threads
-        # take ~210 ms/frame vs ~185 ms with all 8, and leave half the cores
-        # to Nav2 so the controller keeps its rate.
-        num_threads = self.declare_parameter('num_threads', 4).value
-        if num_threads > 0:
-            torch.set_num_threads(num_threads)
+        # Inference runs on the CPU (no CUDA on the Jetson). ONNX Runtime takes
+        # ~140 ms/frame with 2 threads while Nav2 runs and leaves the other
+        # cores to Nav2 (torch/ultralytics took 0.7-1.4 s/frame).
+        num_threads = self.declare_parameter('num_threads', 2).value
 
         self.get_logger().info(f"Loading YOLOv8 Nano model from {model_path}...")
-        self.model = YOLO(model_path)
+        opts = ort.SessionOptions()
+        if num_threads > 0:
+            opts.intra_op_num_threads = num_threads
+        opts.inter_op_num_threads = 1
+        self.session = ort.InferenceSession(
+            model_path, opts, providers=['CPUExecutionProvider'])
+        self.input_name = self.session.get_inputs()[0].name
+        # Fixed input size (H, W), set when the model was exported
+        self.input_hw = tuple(self.session.get_inputs()[0].shape[2:])
 
         # Depth 1: inference is slower than the 30 fps camera, so always take
         # the newest frame. A deeper queue makes ALIGN steer on stale offsets.
@@ -54,6 +65,30 @@ class PerceptionNode(Node):
 
         self.get_logger().info("Perception Node online. Waiting for frames...")
 
+    def detect_person(self, image):
+        """Return (confidence, box center x) of the most confident person, or None."""
+        # Letterbox to the model input, like ultralytics does
+        in_h, in_w = self.input_hw
+        h, w = image.shape[:2]
+        scale = min(in_h / h, in_w / w)
+        new_h, new_w = round(h * scale), round(w * scale)
+        top, left = (in_h - new_h) // 2, (in_w - new_w) // 2
+        padded = cv2.copyMakeBorder(
+            cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR),
+            top, in_h - new_h - top, left, in_w - new_w - left,
+            cv2.BORDER_CONSTANT, value=(114, 114, 114))
+        blob = cv2.dnn.blobFromImage(padded, 1.0 / 255.0, swapRB=True)
+
+        # Output (1, 84, N): rows 0-3 box cx, cy, w, h in input pixels, then
+        # one score row per COCO class. The best person box is the same with
+        # or without NMS, so it is skipped.
+        pred = self.session.run(None, {self.input_name: blob})[0][0]
+        scores = pred[4 + PERSON_CLASS]
+        best = int(np.argmax(scores))
+        if scores[best] <= CONF_THRESHOLD:
+            return None
+        return float(scores[best]), (float(pred[0, best]) - left) / scale
+
     def image_callback(self, data):
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
@@ -61,57 +96,27 @@ class PerceptionNode(Node):
             self.get_logger().error(f"cv_bridge error: {e}")
             return
 
-        height, width, channels = cv_image.shape
-        image_center_x = width / 2.0
+        image_center_x = cv_image.shape[1] / 2.0
 
-        results = self.model(cv_image, verbose=False)
+        person = self.detect_person(cv_image)
+        if person is None:
+            return
+        best_conf, box_center_x = person
 
-        person_found = False
-        best_conf = 0.0
-        best_box = None
+        # Normalized offset (-1.0 to 1.0), positive = right of center
+        offset_x = (box_center_x - image_center_x) / image_center_x
 
-        # Parse the YOLO results
-        for result in results:
-            boxes = result.boxes
-            for box in boxes:
-                # Class 0 in the COCO dataset is 'Person'
-                if int(box.cls[0]) == 0:
-                    conf = float(box.conf[0])
+        # Publish the data to the FSM
+        msg = DetectedFace()
+        # The image's capture stamp: ALIGN turns by where the robot pointed
+        # when the frame was taken, not when this message arrives
+        msg.header = data.header
+        msg.name = "Person"  # For V1, we just target any human
+        msg.confidence = best_conf
+        msg.center_offset_x = float(offset_x)
+        msg.center_offset_y = 0.0
 
-                    # If there are multiple people, lock onto the most confident one
-                    if conf > best_conf and conf > 0.50:  # 50% confidence threshold
-                        best_conf = conf
-                        # Returns [x_min, y_min, x_max, y_max]
-                        best_box = box.xyxy[0].tolist()
-                        person_found = True
-
-        if person_found and best_box is not None:
-            x_min, y_min, x_max, y_max = best_box
-
-            # 1. Calculate the center of the bounding box
-            box_center_x = (x_min + x_max) / 2.0
-
-            # 2. Calculate the normalized offset (-1.0 to 1.0)
-            offset_x = (box_center_x - image_center_x) / image_center_x
-
-            # 3. Publish the data to the FSM
-            msg = DetectedFace()
-            msg.name = "Person"  # For V1, we just target any human
-            msg.confidence = best_conf
-            msg.center_offset_x = float(offset_x)
-            msg.center_offset_y = 0.0
-
-            self.face_pub.publish(msg)
-
-            # 4. Draw visual debugging markers
-            # cv2.rectangle(cv_image, (int(x_min), int(y_min)),
-            #              (int(x_max), int(y_max)), (0, 255, 0), 2)
-            # cv2.circle(cv_image, (int(box_center_x), int(
-            #   (y_min + y_max)/2)), 5, (0, 0, 255), -1)
-
-        # Show the live feed (Press 'q' inside the window to close it, or Ctrl+C in terminal)
-        # cv2.imshow("Guide Dog Vision", cv_image)
-        # cv2.waitKey(1)
+        self.face_pub.publish(msg)
 
 
 def main(args=None):
@@ -124,7 +129,6 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        # cv2.destroyAllWindows()
         rclpy.shutdown()
 
 
