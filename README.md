@@ -43,7 +43,7 @@ stateDiagram-v2
 | IDLE | Waits for `/start_mission` |
 | PATROL | Sends the next patrol waypoint to Nav2; cancels navigation after 3 person detections in a row |
 | SCAN | Turns in place 360° (IMU yaw from `/sportmodestate`) looking for a person with confidence > 0.75 |
-| ALIGN | Stands still for 1 s, then turns gently to center the person in the camera image (P-controller on `center_offset_x`) |
+| ALIGN | Turns to face the person. Each detection becomes a target heading in the IMU yaw frame, and a 50 Hz controller turns to it (see [Perception](#perception)). Coming from PATROL, it first waits for the robot to stop walking. |
 | GREET | Speaks a greeting through `/speak` |
 | GUIDE | Navigates to the fixed destination |
 | ARRIVE | Announces arrival |
@@ -53,7 +53,7 @@ The FSM state is shown live in the YASMIN viewer web UI.
 ### Data flow
 
 ```
-RealSense ──image──> perception_node (YOLOv8n) ──/detected_face──> main_fsm
+RealSense ──image──> perception_node (YOLOv8n, ONNX Runtime) ──/detected_face──> main_fsm
 Hesai XT16 ──/lidar_points──> scan slices ──/scan, /scan_loc──> AMCL + Nav2
 main_fsm ──/navigate_to_pose──> Nav2 ──/cmd_vel──> cmd_vel_bridge ──sport API Move──> Go2
 main_fsm ──/speak, /announce──> tts_node ──audio hub API──> Go2 speaker
@@ -68,12 +68,21 @@ main_fsm ──/speak, /announce──> tts_node ──audio hub API──> Go2 
 | `/navigate_to_pose` | `nav2_msgs/NavigateToPose` action | PATROL, GUIDE → Nav2 |
 | `/cmd_vel` | `geometry_msgs/Twist` | Nav2, SCAN, ALIGN → `cmd_vel_bridge` |
 | `/lidar_points` → `/scan`, `/scan_loc` | `PointCloud2` → `LaserScan` | Hesai → costmaps (`/scan`) and AMCL/SLAM (`/scan_loc`) |
-| `/utlidar/robot_odom`, `/lowstate`, `/sportmodestate` | Go2 topics | robot → TF, joint states, SCAN |
+| `/utlidar/robot_odom`, `/lowstate`, `/sportmodestate` | Go2 topics | robot → TF, joint states, SCAN and ALIGN (IMU yaw) |
 | `/start_mission` | `std_srvs/Trigger` | operator → IDLE |
 
 ### Perception
 
-`perception_node` runs YOLOv8n and publishes the most confident COCO "person" detection (confidence > 0.5) as a `DetectedFace` with `name="Person"` and `center_offset_x` in [-1, 1] (positive means right of center). There is no face recognition yet: the FSM treats any name other than `"Unknown"` as a target.
+`perception_node` runs YOLOv8n on the CPU with ONNX Runtime and publishes the most confident COCO "person" detection (confidence > 0.5) as a `DetectedFace` with `name="Person"` and `center_offset_x` in [-1, 1] (positive means right of center). The message `header` is copied from the camera image, so it carries the capture time. There is no face recognition yet: the FSM treats any name other than `"Unknown"` as a target.
+
+Detections arrive at about 3.7 Hz and 0.2 to 0.45 s after the frame was taken. That was too slow and too late to steer on the image offset directly, so ALIGN steers by IMU heading instead:
+
+- Each detection becomes a target yaw: the `/sportmodestate` yaw at the frame's capture time, plus the person's bearing in the image (RealSense 1280x720).
+- A 50 Hz P-controller turns the robot to that yaw (gain 1.5, yaw rate 0.15 to 0.8 rad/s). It keeps turning between frames and follows a person who moves.
+- ALIGNED needs a heading error ≤ 3.4°, a fresh detection near the image center, and both the robot and the person no longer turning.
+- LOST_FACE after 2.5 s without a detection. After 10 s it greets anyway if the person is still in view.
+
+Changing the `DetectedFace` fields or the meaning of `name` affects PATROL, SCAN and ALIGN. After changing the message, rebuild and restart `perception_node` and `main_fsm` together.
 
 ### Speech
 
@@ -89,7 +98,7 @@ The Jetson has no speaker, so `tts_node` synthesizes each phrase to a WAV, uploa
 | Package | Language | Contents |
 |---|---|---|
 | `guide_dog_mission` | C++ | Mission FSM (`main_fsm`) and its states |
-| `guide_dog_perception` | Python | YOLOv8 person detector (`perception_node`) |
+| `guide_dog_perception` | Python | YOLOv8n person detector on ONNX Runtime (`perception_node`, model `yolov8n_384x640.onnx`) |
 | `guide_dog_audio` | C++ / Python | `tts_node` (speech on the Go2 speaker), `go2_rtc_keepalive`, venv setup script |
 | `guide_dog_interfaces` | msg/srv | `DetectedFace.msg`, `Speak.srv` |
 | `guide_dog_base` | C++ | `cmd_vel_bridge`: `/cmd_vel` → Go2 sport API Move, with acceleration smoothing |
@@ -107,8 +116,11 @@ The workspace also needs these packages in `src/`. They are kept out of git (lis
 | `HesaiLidar_ROS_2.0/` | https://github.com/HesaiTechnology/HesaiLidar_ROS_2.0 (clone with `--recursive` for the SDK submodule) | v2.0.11 (+6 commits, `96be4a1`) |
 | `unitree_msgs/` | `unitree_api` and `unitree_go` from [unitree_ros2](https://github.com/unitreerobotics/unitree_ros2) (`cyclonedds_ws/src/unitree`) | must match the robot's SDK |
 | `go2_description/` | Go2 URDF (`xacro/robot_VLP.xacro`), copied from `~/go2_desc_ws` on the robot | |
+| `nav2_behavior_tree/` | `nav2_behavior_tree/` from [navigation2](https://github.com/ros-navigation/navigation2) tag 0.4.7 (commit `a947ab5`), plus one local patch to `include/nav2_behavior_tree/bt_action_node.hpp` | 0.4.7, patched (the patch is in its own local git repo on the robot: `git -C src/nav2_behavior_tree log -p`) |
 
 Keep the `unitree_msgs` `.msg` files identical to the robot's SDK. DDS matches messages by their type definitions, so any difference breaks communication with the Go2.
+
+`nav2_behavior_tree` overrides the copy in `/opt/ros/foxy` (same version 0.4.7). The patch, backported from Humble, makes `BtActionNode` ignore results that arrive before the new goal's response. Without it, a late result for the previous goal (a cancelled FollowPath, an unfinished replan) became the new goal's result: Nav2 reported "arrived" at once, and an orphaned FollowPath kept driving the robot while the FSM was IDLE. `guide_dog_navigation` depends on it, so `colcon build --packages-up-to guide_dog_bringup` builds it. `bt_navigator` loads the BT plugins by name through `LD_LIBRARY_PATH`, so the override only applies when the workspace is sourced (the start scripts do this).
 
 ## Setup
 
@@ -134,7 +146,7 @@ Sensors: Hesai XT16 LiDAR and Intel RealSense camera, both connected to the Jets
       ros-foxy-cv-bridge ros-foxy-tf2-geometry-msgs
   ```
 - System libraries: `libespeak-ng1`, `nlohmann-json3-dev`, `libssl-dev`, and librealsense2
-- Perception: `ultralytics` for the system Python 3.8 (`/usr/bin/python3 -m pip install ultralytics`; the robot has 8.3.168)
+- Perception: ONNX Runtime for the system Python 3.8 (`/usr/bin/python3 -m pip install --user onnxruntime==1.19.2`, the version on the robot). PyTorch and `ultralytics` are no longer needed.
 - Audio helpers: a Python 3.10 or newer (the setup script defaults to pyenv's 3.11.9)
 
 ### Workspace
@@ -172,6 +184,7 @@ source install/setup.bash
 Notes:
 
 - Rebuild `guide_dog_interfaces` first after changing `.msg` or `.srv` files, and `unitree_msgs` before anything that uses `unitree_go` or `unitree_api`.
+- `--packages-up-to guide_dog_bringup` also builds the patched `nav2_behavior_tree`. Add `--cmake-args -DBUILD_TESTING=OFF` to skip its tests.
 - Launch files, Nav2/SLAM params and maps are installed copies. Rebuild `guide_dog_navigation` or `guide_dog_bringup` after editing them.
 - The Jetson is slow. Avoid rebuilding `realsense-ros` and `yasmin` unless you changed them, for example:
   ```bash
@@ -223,7 +236,17 @@ The other `robot.launch.py` options pass through.
 
 ### Perception
 
-`perception_node` loads the YOLO weights installed with `guide_dog_perception` (`share/guide_dog_perception/models/yolov8n.pt`; override with the `model_path` parameter), so it runs from any directory. If the file is missing it exits rather than downloading weights. YOLO runs on the Jetson's CPU, at about 5 detections per second with `num_threads` 4 (the default, which leaves the other cores to Nav2).
+`perception_node` loads the ONNX model installed with `guide_dog_perception` (`share/guide_dog_perception/models/yolov8n_384x640.onnx`; override with the `model_path` parameter), so it runs from any directory. It exits if the file is missing or is not an `.onnx` file. The model runs on the Jetson's CPU with ONNX Runtime: about 140 ms per frame with `num_threads` 2 (the default, which leaves the other cores to Nav2), which gives about 3.7 detections per second with the full stack running. The image subscription has queue depth 1, so the node always processes the newest frame.
+
+PyTorch was dropped because on the Jetson's CPU it took 0.7 to 1.4 s per frame, so detections came about every 2 s and ALIGN barely turned. The `.onnx` file was exported with ultralytics 8.3.168:
+
+```python
+# YOLO_AUTOINSTALL=false; ultralytics downloads yolov8n.pt
+from ultralytics import YOLO
+YOLO('yolov8n.pt').export(format='onnx', imgsz=[384, 640], opset=12, simplify=False)
+```
+
+The node letterboxes each image to the model's input size and takes the highest person score, without NMS.
 
 To run perception on its own, for example with the app layer already up:
 
@@ -275,8 +298,8 @@ Rebuild `guide_dog_navigation` to install the new map, or pass `map:=<path to ya
 | Guide destination | `guide_dog_mission/src/states/guide_state.cpp` |
 | Nav2 parameters | `guide_dog_navigation/config/nav2_params_dwb.yaml`, `nav2_params_rpp.yaml`. Keep them in sync outside `controller_server.FollowPath` and the local inflation layer. |
 | Person-detection debounce | `min_detections_`, `max_detection_gap_sec_` in `guide_dog_mission/include/guide_dog_mission/states/patrol_state.hpp` |
-| ALIGN gain and balance limits (settle time, yaw rate range, timeouts) | `guide_dog_mission/include/guide_dog_mission/states/align_state.hpp` |
-| YOLO model and CPU threads | `perception_node` parameters `model_path`, `num_threads` |
+| ALIGN heading controller (gain, yaw rate range, tolerances, settle time, timeouts, camera field of view) | `guide_dog_mission/include/guide_dog_mission/states/align_state.hpp` |
+| YOLO model and CPU threads | `perception_node` parameters `model_path` (must be an `.onnx` file), `num_threads` (default 2) |
 | Velocity limits and smoothing | `cmd_vel_bridge` parameters (`max_vx`, `max_vy`, `max_wz`, `accel_*`, `decel_*`, `smooth`) in `guide_dog_base/src/cmd_vel_bridge.cpp` |
 | Speech engine and voice | `tts_node` parameters (`engine`, `gtts_lang`, `voice`, `rate_wpm`, `rtc_wait_sec`) |
 | LiDAR mounting | `guide_dog_bringup/config/hesai_xt16.yaml` |
@@ -295,13 +318,16 @@ To add a mission state, put the header in `guide_dog_mission/include/guide_dog_m
 | First use of a phrase is slow | Expected: the phrase is generated and uploaded once (about 5 to 9 s), then cached on the robot. |
 | Nav2 aborts with "transform too old" | DDS multicast lag on `eth0`. Use the shipped `cyclonedds_eth.xml`, which limits multicast to discovery (`AllowMulticast=spdp`). |
 | `ros2` CLI errors about `rclpy` | pyenv's Python is active. Set `PYENV_VERSION=system`. |
+| Nav2 reports a goal reached immediately, or the robot keeps driving while the FSM is IDLE | The patched `nav2_behavior_tree` is not loaded. Build it and source `~/unitree_ros_ws/install/setup.bash` before starting Nav2 (the start scripts do). |
+| `perception_node` exits at startup | The model file is missing or is not an `.onnx` file. Rebuild `guide_dog_perception` or check `model_path`. |
 
 ## Known limitations
 
 - No face recognition: any detected person is treated as a target.
 - Patrol waypoints and the guide destination are hardcoded for `floor_15`, and their orientation (yaw) is not set.
-- There are no functional tests. The Python packages only have the standard ament lint tests:
+- On the first real run (2026-10-08), the Go2 did not turn at commanded yaw rates up to about 0.3 rad/s. ALIGN's minimum is 0.15 rad/s (`min_yaw_rate_`), so it can stop a few degrees off the person and alternate with SCAN. This is not tuned yet.
+- There are no functional tests. The Python packages only have the standard ament lint tests. `colcon test` for `guide_dog_perception` currently crashes before running (the setuptools in `~/.local` ships a typeguard pytest plugin that the system pytest rejects), so run the linters directly:
   ```bash
-  colcon test --packages-select guide_dog_perception && colcon test-result --verbose
+  ament_flake8 src/guide_dog_perception && ament_pep257 src/guide_dog_perception
   ```
 - Most packages do not declare a license yet (`TODO` in `package.xml`). `guide_dog_navigation` is MIT. The third-party packages keep their own licenses.
