@@ -40,6 +40,7 @@ def generate_launch_description():
             'viewer_host': LaunchConfiguration('viewer_host'),
             'viewer_port': LaunchConfiguration('viewer_port'),
             'camera': LaunchConfiguration('camera'),
+            'perception_images': LaunchConfiguration('perception_images'),
         }.items()
     )
 
@@ -68,6 +69,11 @@ def generate_launch_description():
             'camera',
             default_value='false',
             description='With the app layer: also start RealSense + perception (person detection)'),
+        DeclareLaunchArgument(
+            'perception_images',
+            default_value='0.0',
+            description='Debug: perception saves an annotated frame every this many seconds '
+                        '(0 = off) next to its per-frame log in ~/.ros/log/perception_*'),
         DeclareLaunchArgument(
             'app_delay',
             default_value='10.0',

@@ -9,7 +9,7 @@ PatrolState::PatrolState(rclcpp::Node::SharedPtr node)
 {
     waypoints_ = {
         {-7.2758965492248535, 2.932074785232544, 0.0},     
-        {-6.386472702026367, 0.44359540939331055, 0.0},    
+        {-1.6937427520751953, 3.5432777404785156, 0.0},    
         {-14.508125305175781, 5.986011505126953, 0.0}      
     };
 
@@ -71,11 +71,19 @@ void PatrolState::face_callback(const guide_dog_interfaces::msg::DetectedFace::S
             detection_count_ = 0;  // the earlier hits were too long ago, start over
         }
         last_detection_time_ = now;
+        const double conf = msg->confidence;
+        if (detection_count_ == 0) {
+            run_min_conf_ = run_max_conf_ = conf;
+        } else {
+            run_min_conf_ = std::min(run_min_conf_, conf);
+            run_max_conf_ = std::max(run_max_conf_, conf);
+        }
         if (++detection_count_ < min_detections_) {
             return;
         }
 
-        RCLCPP_INFO(node_->get_logger(), "Face detected mid-patrol! Canceling Nav2 goal.");
+        RCLCPP_INFO(node_->get_logger(), "Face detected mid-patrol (%d frames, confidence %.2f-%.2f)! Canceling Nav2 goal.",
+                    min_detections_, run_min_conf_, run_max_conf_);
 
         cancel_requested_ = true;
 

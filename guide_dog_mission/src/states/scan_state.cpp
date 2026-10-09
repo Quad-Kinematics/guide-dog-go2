@@ -41,7 +41,8 @@ std::string ScanState::execute(yasmin::Blackboard::SharedPtr blackboard)
     cmd_vel_pub_->publish(cmd);
 
     if (face_found_) {
-        RCLCPP_INFO(node_->get_logger(), "Scan interrupted: Face detected.");
+        RCLCPP_INFO(node_->get_logger(), "Scan interrupted: Face detected (confidence %.2f).",
+                    found_confidence_.load());
         return "FACE_DETECTED";
     } else {
         RCLCPP_INFO(node_->get_logger(), "Scan complete. No face found.");
@@ -75,6 +76,7 @@ void ScanState::sport_state_callback(const unitree_go::msg::SportModeState::Shar
 void ScanState::face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg) 
 {
     if (msg->name != "Unknown" && msg->confidence > 0.75) {
+        found_confidence_ = msg->confidence;
         face_found_ = true;
     }
 }

@@ -32,6 +32,8 @@ private:
     const double max_detection_gap_sec_ = 1.0;
     std::atomic<int> detection_count_;
     rclcpp::Time last_detection_time_;  // executor thread only
+    double run_min_conf_ = 0.0;         // confidence range of the current run, for the log
+    double run_max_conf_ = 0.0;         // (executor thread only)
 
     void face_callback(const guide_dog_interfaces::msg::DetectedFace::SharedPtr msg);
 };

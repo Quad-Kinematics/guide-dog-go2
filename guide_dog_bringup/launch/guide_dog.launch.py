@@ -26,10 +26,18 @@ def generate_launch_description():
         description='Start the RealSense driver and the perception node'
     )
 
+    perception_images_arg = DeclareLaunchArgument(
+        'perception_images',
+        default_value='0.0',
+        description='Debug: perception saves an annotated frame every this many seconds '
+                    '(0 = off) next to its per-frame log in ~/.ros/log/perception_*'
+    )
+
     return LaunchDescription([
         viewer_host_arg,
         viewer_port_arg,
         camera_arg,
+        perception_images_arg,
 
         # 2. Start Yasmin Viewer with custom host and port
         Node(
@@ -58,6 +66,7 @@ def generate_launch_description():
             executable='perception_node',
             name='guide_dog_perception',
             output='screen',
+            parameters=[{'debug_image_sec': LaunchConfiguration('perception_images')}],
             condition=IfCondition(LaunchConfiguration('camera'))
         ),
 

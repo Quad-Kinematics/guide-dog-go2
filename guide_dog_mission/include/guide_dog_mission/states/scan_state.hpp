@@ -23,7 +23,8 @@ private:
     AnnouncePublisher::SharedPtr announce_pub_;
 
     std::atomic<bool> face_found_;
-    
+    std::atomic<double> found_confidence_{0.0};  // of the frame that set face_found_, for the log
+
     // Odometry tracking variables
     double last_yaw_;
     double accumulated_yaw_;

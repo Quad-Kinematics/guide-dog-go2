@@ -86,9 +86,15 @@ std::string AlignState::turn_to_target()
 
     const rclcpp::Time track_start = node_->now();
 
+    // Turn / pulse / settle timing
+    bool turning = false;                  // continuous turn in progress
+    double pulse_cmd = 0.0;
+    rclcpp::Time pulse_end = track_start;  // command pulse_cmd until then
+    rclcpp::Time settle_end = track_start; // then hold still until then
+
     while (rclcpp::ok()) {
         const rclcpp::Time now = node_->now();
-        double yaw, turn_rate, target_yaw, target_rate, offset;
+        double yaw, turn_rate, target_yaw, target_rate, offset, conf;
         bool have_target;
         rclcpp::Time state_time, last_seen;
 
@@ -102,6 +108,7 @@ std::string AlignState::turn_to_target()
             target_yaw = target_yaw_;
             target_rate = target_rate_;
             offset = target_offset_x_;
+            conf = target_conf_;
             last_seen = last_seen_time_;
         }
 
@@ -122,8 +129,8 @@ std::string AlignState::turn_to_target()
             cmd.angular.z = 0.0;
             cmd_vel_pub_->publish(cmd);
             if (fresh) {
-                RCLCPP_WARN(node_->get_logger(), "Not centered after %.0f s (offset %.2f), greeting anyway.",
-                            max_align_sec_, offset);
+                RCLCPP_WARN(node_->get_logger(), "Not centered after %.0f s (offset %.2f, confidence %.2f), greeting anyway.",
+                            max_align_sec_, offset, conf);
                 return "ALIGNED";
             }
             return "LOST_FACE";
@@ -134,34 +141,65 @@ std::string AlignState::turn_to_target()
             RCLCPP_ERROR_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                                   "No /sportmodestate for %.1f s, cannot turn.", (now - state_time).seconds());
             cmd.angular.z = 0.0;
+            turning = false;
+            pulse_end = now;
+            settle_end = now + rclcpp::Duration::from_seconds(settle_sec_);
         } else if (!have_target) {
             // 4. Wait for a detection
             cmd.angular.z = 0.0;
         } else {
+            // Positive error = target to the left = positive (counterclockwise) yaw rate
             const double error = wrap_angle(target_yaw - yaw);
-            if (std::abs(error) <= heading_tol_) {
-                cmd.angular.z = 0.0;
-                // 5. Aligned once a fresh frame shows the person near the center,
-                // the robot has stopped turning and the person is not walking on
-                if (fresh && std::abs(offset) <= offset_tol_ && std::abs(turn_rate) <= settled_rate_ &&
-                    std::abs(target_rate) <= settled_rate_) {
-                    RCLCPP_INFO(node_->get_logger(), "Target aligned (offset %.2f) after %.1f s.",
-                                offset, (now - entry).seconds());
-                    cmd_vel_pub_->publish(cmd);
-                    return "ALIGNED";
-                }
-            } else {
-                // 6. P-controller on the heading error. Positive error = target to the
-                // left = positive (counterclockwise) yaw rate. At least min_yaw_rate_
-                // so the robot does turn instead of stepping in place.
+            const char * mode;
+            if (now < pulse_end) {
+                // 5. A pulse is running: let it finish
+                cmd.angular.z = pulse_cmd;
+                mode = "pulse";
+            } else if (turning ? std::abs(error) > turn_stop_error_ : std::abs(error) > turn_start_error_) {
+                // 6. Far off: turn continuously, at least min_yaw_rate_ so the Go2
+                // turns at all. Also keeps a spin from SCAN going the same way.
+                turning = true;
                 const double wz = K_yaw_ * error;
                 cmd.angular.z = std::copysign(
                     std::clamp(std::abs(wz), min_yaw_rate_, max_yaw_rate_), wz);
+                mode = "turn";
+            } else if (turning || now < settle_end || std::abs(turn_rate) > settled_rate_) {
+                // 7. Stop and let the heading settle (coast, spring-back) before measuring again
+                if (turning) {
+                    turning = false;
+                    settle_end = now + rclcpp::Duration::from_seconds(settle_sec_);
+                }
+                cmd.angular.z = 0.0;
+                mode = "settle";
+            } else if (std::abs(error) > heading_tol_) {
+                // 8. A few degrees off: one pulse sized to the error, then settle
+                const double sec = std::clamp(
+                    pulse_dead_sec_ + std::abs(error) * 180.0 / M_PI / pulse_deg_per_sec_,
+                    min_pulse_sec_, max_pulse_sec_);
+                pulse_cmd = std::copysign(pulse_rate_, error);
+                pulse_end = now + rclcpp::Duration::from_seconds(sec);
+                settle_end = pulse_end + rclcpp::Duration::from_seconds(settle_sec_);
+                cmd.angular.z = pulse_cmd;
+                mode = "pulse";
+                RCLCPP_INFO(node_->get_logger(), "ALIGN: %+.0f deg off, %.2f s pulse at %+.1f rad/s",
+                            error * 180.0 / M_PI, sec, pulse_cmd);
+            } else {
+                // 9. Aligned once a fresh frame shows the person near the center,
+                // the robot has stopped turning and the person is not walking on
+                cmd.angular.z = 0.0;
+                mode = "hold";
+                if (fresh && std::abs(offset) <= offset_tol_ && std::abs(turn_rate) <= settled_rate_ &&
+                    std::abs(target_rate) <= settled_rate_) {
+                    RCLCPP_INFO(node_->get_logger(), "Target aligned (offset %.2f, confidence %.2f) after %.1f s.",
+                                offset, conf, (now - entry).seconds());
+                    cmd_vel_pub_->publish(cmd);
+                    return "ALIGNED";
+                }
             }
             RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 500,
-                                 "ALIGN: heading error %+.0f deg, cmd %+.2f rad/s, turning %+.2f rad/s, "
-                                 "offset %+.2f seen %.1f s ago, person moving %+.2f rad/s",
-                                 error * 180.0 / M_PI, cmd.angular.z, turn_rate, offset, since_seen,
+                                 "ALIGN %s: heading error %+.0f deg, cmd %+.2f rad/s, turning %+.2f rad/s, "
+                                 "offset %+.2f confidence %.2f seen %.1f s ago, person moving %+.2f rad/s",
+                                 mode, error * 180.0 / M_PI, cmd.angular.z, turn_rate, offset, conf, since_seen,
                                  target_rate);
         }
 
@@ -197,6 +235,7 @@ void AlignState::face_callback(const guide_dog_interfaces::msg::DetectedFace::Sh
 
     std::lock_guard<std::mutex> lock(data_mutex_);
     target_offset_x_ = msg->center_offset_x;
+    target_conf_ = msg->confidence;
     last_seen_time_ = now; // Reset the timeout clock
     if (!yaw_history_.empty()) {
         // Where the person stands: the heading when the frame was taken plus

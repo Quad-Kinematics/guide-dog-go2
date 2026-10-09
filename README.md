@@ -103,6 +103,7 @@ The Jetson has no speaker, so `tts_node` synthesizes each phrase to a WAV, uploa
 | `guide_dog_interfaces` | msg/srv | `DetectedFace.msg`, `Speak.srv` |
 | `guide_dog_base` | C++ | `cmd_vel_bridge`: `/cmd_vel` → Go2 sport API Move, with acceleration smoothing |
 | `guide_dog_navigation` | Python / config | AMCL, Nav2 and SLAM launch files, Nav2 params (DWB and RPP), the `floor_15` map, and helper nodes (`odom_to_tf`, `lowstate_to_joint_states`, `goal_pose_relay`, `save_map`, `rviz_click_logger`) |
+| `guide_dog_mapping3d` | C++ | `cloud_mapper`: 3D point cloud map from the Go2's L1 LiDAR, saved as `.pcd` or `.ply` for viewing |
 | `guide_dog_bringup` | launch / scripts | `robot.launch.py`, `base.launch.py`, `mapping.launch.py`, `guide_dog.launch.py`, start scripts, Hesai and CycloneDDS config |
 
 ### Third-party packages (not in this repository)
@@ -289,6 +290,28 @@ ros2 run guide_dog_navigation save_map <name>
 ```
 
 Rebuild `guide_dog_navigation` to install the new map, or pass `map:=<path to yaml>` to the launch. The patrol waypoints and the guide destination must then be updated for the new map (see below).
+
+## 3D map for viewing
+
+`guide_dog_mapping3d` builds a 3D point cloud of the floor from the Go2's built-in L1 LiDAR, to look at in CloudCompare, Open3D or RViz. Navigation does not use it. The robot already removes the motion distortion from `/utlidar/cloud_deskewed` and publishes it in its `odom` frame, so `cloud_mapper` only moves each cloud into `map` and averages the points into 5 cm voxels.
+
+Start the robot, set the initial pose in RViz (AMCL publishes `map` → `odom` only after that), then start the mapper in a second shell:
+
+```bash
+ros2 run guide_dog_bringup start_robot.sh app:=false
+ros2 launch guide_dog_mapping3d cloud_mapper.launch.py map_name:=floor_15
+```
+
+Walk the robot through the floor with the remote. The L1 only looks forward, so turn the robot around to cover what is behind it. Ctrl-C saves the map, or save while it keeps running:
+
+```bash
+ros2 service call /cloud_mapper/save std_srvs/srv/Trigger
+```
+
+- Maps go to `~/maps_3d/<map_name>.pcd` (`output_dir`). Without `map_name` the file is `cloud_map_<date>_<time>.pcd`. `file_format:=ply` writes PLY instead. Both are binary with x, y, z and intensity.
+- Without AMCL, pass `target_frame:=odom`. The map then drifts with the robot's odometry.
+- `/cloud_mapper/reset` clears the map. `/cloud_map` carries a 15 cm preview every 5 s, only while something subscribes (point clouds through rosbridge on Foxy are unreliable, so it is kept small).
+- `min_hits` (`ros2 param set /cloud_mapper min_hits 3`, read at save time) drops voxels hit fewer times, such as people walking past.
 
 ## Configuration
 

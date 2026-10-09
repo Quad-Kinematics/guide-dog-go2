@@ -1,4 +1,7 @@
+import csv
+from datetime import datetime
 import os
+import time
 
 from ament_index_python.packages import get_package_share_directory
 import rclpy
@@ -10,7 +13,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-CONF_THRESHOLD = 0.50  # 50% confidence threshold
+CONF_THRESHOLD = 0.80  # 80% confidence threshold
 PERSON_CLASS = 0       # Class 0 in the COCO dataset is 'Person'
 
 
@@ -57,6 +60,33 @@ class PerceptionNode(Node):
             1
         )
 
+        # Per-frame log for debugging missed detections: the best person score
+        # even below CONF_THRESHOLD, box, inference time, sharpness (blur) and
+        # brightness, one row per processed frame, in the ROS log directory.
+        # debug_image_sec > 0 also saves an annotated 640x360 JPEG that often
+        # (pictures of people: off by default, delete them after use).
+        self.frame_log = None
+        self.image_dir = None
+        self.debug_image_sec = float(self.declare_parameter('debug_image_sec', 0.0).value)
+        self.last_image_save = 0.0
+        if self.declare_parameter('frame_log', True).value:
+            log_root = os.environ.get('ROS_LOG_DIR') or os.path.join(
+                os.environ.get('ROS_HOME') or os.path.expanduser('~/.ros'), 'log')
+            log_dir = os.path.join(
+                log_root, 'perception_' + datetime.now().strftime('%Y-%m-%d-%H-%M-%S'))
+            os.makedirs(log_dir, exist_ok=True)
+            self.frame_log_file = open(os.path.join(log_dir, 'frames.csv'), 'w', newline='')
+            self.frame_log = csv.writer(self.frame_log_file)
+            self.frame_log.writerow([
+                'recv_time', 'frame_stamp', 'infer_ms', 'score', 'published',
+                'cx', 'cy', 'w', 'h', 'top', 'bottom', 'sharpness', 'brightness'])
+            if self.debug_image_sec > 0.0:
+                self.image_dir = os.path.join(log_dir, 'images')
+                os.makedirs(self.image_dir, exist_ok=True)
+            self.get_logger().info(
+                f"Logging every frame to {log_dir}"
+                + (f" (+ an image every {self.debug_image_sec:.1f} s)" if self.image_dir else ''))
+
         self.face_pub = self.create_publisher(
             DetectedFace,
             '/detected_face',
@@ -66,7 +96,7 @@ class PerceptionNode(Node):
         self.get_logger().info("Perception Node online. Waiting for frames...")
 
     def detect_person(self, image):
-        """Return (confidence, box center x) of the most confident person, or None."""
+        """Return (score, cx, cy, w, h) of the most confident person box, any score."""
         # Letterbox to the model input, like ultralytics does
         in_h, in_w = self.input_hw
         h, w = image.shape[:2]
@@ -85,9 +115,9 @@ class PerceptionNode(Node):
         pred = self.session.run(None, {self.input_name: blob})[0][0]
         scores = pred[4 + PERSON_CLASS]
         best = int(np.argmax(scores))
-        if scores[best] <= CONF_THRESHOLD:
-            return None
-        return float(scores[best]), (float(pred[0, best]) - left) / scale
+        return (float(scores[best]),
+                (float(pred[0, best]) - left) / scale, (float(pred[1, best]) - top) / scale,
+                float(pred[2, best]) / scale, float(pred[3, best]) / scale)
 
     def image_callback(self, data):
         try:
@@ -98,25 +128,56 @@ class PerceptionNode(Node):
 
         image_center_x = cv_image.shape[1] / 2.0
 
-        person = self.detect_person(cv_image)
-        if person is None:
-            return
-        best_conf, box_center_x = person
+        recv_time = self.get_clock().now().nanoseconds * 1e-9
+        t0 = time.monotonic()
+        best_conf, box_center_x, box_cy, box_w, box_h = self.detect_person(cv_image)
+        infer_ms = (time.monotonic() - t0) * 1000.0
+        published = best_conf > CONF_THRESHOLD
+        if published:
+            # Normalized offset (-1.0 to 1.0), positive = right of center
+            offset_x = (box_center_x - image_center_x) / image_center_x
 
-        # Normalized offset (-1.0 to 1.0), positive = right of center
-        offset_x = (box_center_x - image_center_x) / image_center_x
+            # Publish the data to the FSM
+            msg = DetectedFace()
+            # The image's capture stamp: ALIGN turns by where the robot pointed
+            # when the frame was taken, not when this message arrives
+            msg.header = data.header
+            msg.name = "Person"  # For V1, we just target any human
+            msg.confidence = best_conf
+            msg.center_offset_x = float(offset_x)
+            msg.center_offset_y = 0.0
 
-        # Publish the data to the FSM
-        msg = DetectedFace()
-        # The image's capture stamp: ALIGN turns by where the robot pointed
-        # when the frame was taken, not when this message arrives
-        msg.header = data.header
-        msg.name = "Person"  # For V1, we just target any human
-        msg.confidence = best_conf
-        msg.center_offset_x = float(offset_x)
-        msg.center_offset_y = 0.0
+            self.face_pub.publish(msg)
 
-        self.face_pub.publish(msg)
+        # After publishing, so the log adds no delay to /detected_face
+        if self.frame_log is not None:
+            self.log_frame(data, cv_image, recv_time, infer_ms, published,
+                           (best_conf, box_center_x, box_cy, box_w, box_h))
+
+    def log_frame(self, data, image, recv_time, infer_ms, published, box):
+        score, cx, cy, w, h = box
+        small = cv2.resize(image, (640, 360), interpolation=cv2.INTER_AREA)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        # Variance of the Laplacian: drops when the image is smeared (turning)
+        sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+        stamp = data.header.stamp.sec + data.header.stamp.nanosec * 1e-9
+        top, bottom = max(cy - h / 2, 0.0), min(cy + h / 2, image.shape[0] - 1.0)
+        self.frame_log.writerow([
+            f'{recv_time:.3f}', f'{stamp:.3f}', f'{infer_ms:.0f}', f'{score:.3f}', int(published),
+            f'{cx:.0f}', f'{cy:.0f}', f'{w:.0f}', f'{h:.0f}', f'{top:.0f}', f'{bottom:.0f}',
+            f'{sharpness:.0f}', f'{gray.mean():.0f}'])
+        self.frame_log_file.flush()
+
+        if self.image_dir and recv_time - self.last_image_save >= self.debug_image_sec:
+            self.last_image_save = recv_time
+            k = 640.0 / image.shape[1]
+            p0 = (int((cx - w / 2) * k), int(top * k))
+            p1 = (int((cx + w / 2) * k), int(bottom * k))
+            color = (0, 255, 0) if published else (0, 0, 255)
+            cv2.rectangle(small, p0, p1, color, 2)
+            cv2.putText(small, f'{score:.2f} sharp {sharpness:.0f}', (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            cv2.imwrite(os.path.join(self.image_dir, f'{recv_time:.3f}_{score:.2f}.jpg'), small)
 
 
 def main(args=None):
